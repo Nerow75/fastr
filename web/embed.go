@@ -13,6 +13,19 @@ import (
 //go:embed all:dist
 var assets embed.FS
 
+// Translation catalogues are embedded from source rather than from the built
+// bundle, so the Go side and the browser side read the same files. A translator
+// edits one JSON file and both surfaces follow. FR-039a.
+//
+//go:embed src/locales/*.json
+var locales embed.FS
+
+// Locales returns the translation catalogues, rooted at the directory holding
+// them.
+func Locales() (fs.FS, error) {
+	return fs.Sub(locales, "src/locales")
+}
+
 // FS returns the built bundle rooted at its top level.
 //
 // It fails rather than serving an empty tree when the bundle is absent, so a

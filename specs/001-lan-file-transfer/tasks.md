@@ -66,15 +66,15 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 ### Observability and errors
 
-- [ ] T021 Implement structured logging with mandatory secret redaction in `internal/app/logging.go`, per FR-019
-- [ ] T022 [P] Define the machine-readable error catalogue and its translation keys in `internal/app/errors.go`, per the contract error format
-- [ ] T023 [P] Write a test asserting no key, token, or pairing code can reach a log line in `test/integration/log_hygiene_test.go`
+- [X] T021 Implement structured logging with mandatory secret redaction in `internal/app/logging.go`, per FR-019
+- [X] T022 [P] Define the machine-readable error catalogue and its translation keys in `internal/app/errors.go`, per the contract error format
+- [X] T023 [P] Write a test asserting no key, token, or pairing code can reach a log line in `test/integration/log_hygiene_test.go`
 
 ### Internationalization
 
-- [ ] T024 [P] Implement catalogue loading and language negotiation in `internal/i18n/i18n.go`
-- [ ] T025 [P] Create the English and French catalogues in `web/src/locales/en.json` and `web/src/locales/fr.json`
-- [ ] T026 [P] Implement the client translation helper with English fallback in `web/src/lib/i18n.ts`, per FR-039d
+- [X] T024 [P] Implement catalogue loading and language negotiation in `internal/i18n/i18n.go`
+- [X] T025 [P] Create the English and French catalogues in `web/src/locales/en.json` and `web/src/locales/fr.json`
+- [X] T026 [P] Implement the client translation helper with English fallback in `web/src/lib/i18n.ts`, per FR-039d
 
 ### HTTP server and security envelope
 
