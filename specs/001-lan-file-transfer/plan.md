@@ -64,7 +64,7 @@ Checked against constitution v2.0.0.
 | Principle | Verdict | How the design satisfies it |
 |---|---|---|
 | I. Local-First, No Cloud | PASS | No dependency reaches the network at runtime. Fonts, icons, scripts, and translations are embedded with `go:embed`. A CI test asserts zero sockets leave the local network. No account, no telemetry. |
-| II. Zero Install On Mobile | PASS with a flagged tension | The default path is a browser and nothing else. Trusted mode asks the user to install a certificate profile, which is opt-in and never required. See Complexity Tracking. |
+| II. Zero Install On Mobile | PASS | The default path is a browser and nothing else. Trusted mode asks the user to install a certificate authority, which constitution v2.0.1 permits explicitly as an opt-in exception, under four conditions the design meets: opt-in, never required to transfer a file, abandonable without breaking the default path, and never an application or store package. |
 | III. No Size Limit | PASS | `io.Copy` streams with a fixed buffer. No size constant anywhere. Free space is checked before starting. A 10 GB fixture runs in CI with a memory assertion. |
 | IV. Linux / Windows Parity | PASS | All platform specifics live in `internal/platform`. CI runs the full suite on both. Filename sanitization is driven by the destination's rules, not the sender's. |
 | V. Security On Shared Networks | PASS | Explicit pairing, no anonymous access, filesystem confined to the receive folder with traversal tests, binding restricted to chosen interfaces, revocable sessions, secrets never logged. Both protection modes are implemented as the amended principle requires, with the honesty duty enforced by SC-016a. |
@@ -142,12 +142,10 @@ Vite and embedded, so a release remains one file.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| Trusted mode asks the phone to install a certificate profile, in tension with Principle II | Principle V requires an available path to full content encryption. Browsers grant a secure context only to loopback, so a trusted certificate is the only way to obtain one on a phone. | Serving a self-signed certificate without installing a CA shows a security warning, which FR-044 forbids. Application-layer encryption alone cannot decrypt into a browser download without service workers, which need the secure context we are trying to obtain. The dependency is circular; installing trust is the only exit. |
 | Two protection modes rather than one | The three principles I, V, and VI cannot hold at once for mobile reception of large files, as established in research. | A single mode forces one of: a security warning at onboarding, unencrypted content with no opt-out, or dropping browser-only access. All three were rejected by the project owner in favour of a default plus an opt-in. |
 | A service worker exists but only in trusted mode | It is the only mechanism that can decrypt a stream while the browser writes it to disk. | Buffering a decrypted 10 GB file in memory is impossible on iOS. Chunked manual saving produces an unusable interface. |
 
-**Note for the owner**: Principle II currently reads that the phone "uses a browser and nothing
-else", with no exception for an opt-in step. The design honours the intent, since the default path
-installs nothing, but the wording does not yet carry the exception. A PATCH amendment scoping
-Principle II to the default mode would remove the ambiguity. Flagged rather than applied, since
-this session has already amended the constitution twice.
+**Resolved**: the tension between trusted mode and Principle II was settled by constitution
+v2.0.1, which scopes Principle II to the default path and permits the trusted-mode exception under
+four conditions. Both remaining entries above are genuine trade-offs accepted by the project
+owner, not oversights.

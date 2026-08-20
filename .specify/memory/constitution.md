@@ -1,6 +1,36 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 2.0.0 -> 2.0.1
+Bump type: PATCH (removes a contradiction between two sections; adds no new rule)
+
+Amendment 2.0.1 (2026-08-20)
+----------------------------
+Motivation: v2.0.0 introduced an optional trusted mode that asks the user to install a locally
+generated certificate authority on the phone, while Principle II still read that the phone uses
+"a browser and nothing else" with no exception. The two sections contradicted each other, and
+specs/001-lan-file-transfer/plan.md had to record the conflict in Complexity Tracking rather
+than pass its compliance check cleanly.
+
+Modified:
+  - Principle II (Zero Install On Mobile). Added a "Scope of this principle" paragraph stating
+    that it governs the default path, which must always remain reachable with a browser alone,
+    and that the trusted mode of Principle V is a permitted exception under four conditions:
+    opt-in, never required to transfer a file, abandonable without breaking the default path,
+    and never an application, store package, or signed mobile binary.
+
+Classified PATCH rather than MINOR: the guarantee was already narrowed by the v2.0.0 amendment
+to Principle V, which this session ratified. No new permission is granted here and no rule is
+relaxed; the wording is brought in line with a decision already in force, and the four
+conditions make the exception narrower than v2.0.0 left it.
+
+Unchanged: all other principles, sections, and governance rules.
+
+Impact on existing artifacts: the first entry in Complexity Tracking in
+specs/001-lan-file-transfer/plan.md is resolved and the plan now passes without that tension.
+
+Previous history
+----------------
 Version change: 1.1.0 -> 2.0.0
 Bump type: MAJOR (a NON-NEGOTIABLE principle is redefined in a backward-incompatible way)
 
@@ -127,8 +157,16 @@ versions). No essential capability (discover, send, receive, list, resume) MUST 
 web API that iOS Safari lacks. Advanced APIs are allowed only as progressive enhancement,
 with a working fallback.
 
+**Scope of this principle**: it governs the default path, which MUST always remain reachable
+with a browser alone. The optional trusted mode of Principle V asks the user to install a
+locally generated certificate authority. That is permitted, and only under these conditions:
+it MUST be opt-in, it MUST never be required to send or receive a file, abandoning it MUST
+leave the default path working, and it MUST NOT install an application, an app-store package,
+or any signed mobile binary.
+
 Rationale: the tool loses its value if something must be installed on every phone it is
-meant to help.
+meant to help. It would equally lose value if users who want full encryption had no way to
+get it. The default stays free of installation; the exception is theirs to choose.
 
 ### III. No Size Limit
 
@@ -285,4 +323,4 @@ document before any code that depends on it.
 be listed and explicitly justified, otherwise the plan is rejected. A compliance review runs
 at every merge and every release.
 
-**Version**: 2.0.0 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20
+**Version**: 2.0.1 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20
