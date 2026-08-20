@@ -80,11 +80,11 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 - [ ] T027 Implement the HTTP server, interface binding, and start/stop lifecycle in `internal/httpapi/server.go`, listening only when started per FR-001
 - [ ] T028 Implement routing and the error response writer in `internal/httpapi/router.go`
-- [ ] T029 Implement the ChaCha20-Poly1305 envelope with a monotonic counter in `internal/pairing/envelope.go`, per contracts/pairing.md
+- [X] T029 Implement the ChaCha20-Poly1305 envelope with a monotonic counter in `internal/pairing/envelope.go`, per contracts/pairing.md
 - [ ] T030 [P] Implement the matching envelope on the client in `web/src/crypto/envelope.ts` using `@noble/ciphers`
-- [ ] T031 Implement the X25519 handshake, HKDF derivation, and code binding in `internal/pairing/handshake.go`
+- [X] T031 Implement the X25519 handshake, HKDF derivation, and code binding in `internal/pairing/handshake.go`
 - [ ] T032 [P] Implement the client handshake in `web/src/crypto/handshake.ts` using `@noble/curves`
-- [ ] T033 Implement pairing codes with single use, 3-minute expiry, 5-failure death, and rate limiting in `internal/pairing/code.go`, per FR-012 and FR-013
+- [X] T033 Implement pairing codes with single use, 3-minute expiry, 5-failure death, and rate limiting in `internal/pairing/code.go`, per FR-012 and FR-013
 - [ ] T034 Implement session credentials and the authorization middleware in `internal/pairing/session.go`, refusing every unpaired request per FR-011
 - [ ] T035 Implement the pairing endpoints in `internal/httpapi/pairing_handlers.go` per contracts/http-api.md
 - [ ] T036 [P] Write a replay and out-of-order counter rejection test in `test/integration/envelope_replay_test.go`
