@@ -308,8 +308,14 @@ func (s *Store) SetProtection(deviceID string, mode Protection) error {
 }
 
 // RevokePairing makes a pairing unusable immediately, with no grace period.
-// FR-015. The key material is zeroed at the same time: a revoked pairing must
-// not leave a usable key sitting in the store.
+// FR-015.
+//
+// The session key is zeroed, because it is live key material and a revoked
+// pairing must not leave one usable in the store. The token hash is kept: it
+// cannot be turned back into a credential, and keeping it is what lets the
+// revoked device be told "access was removed" rather than "this device is not
+// paired". FR-038 asks for a corrective action, and those two are different
+// ones. It also tells a revoked device nothing it does not already know.
 func (s *Store) RevokePairing(deviceID string) error {
 	return s.updatePairing(deviceID, func(p *Pairing) error {
 		if p.Revoked() {
@@ -318,7 +324,6 @@ func (s *Store) RevokePairing(deviceID string) error {
 		now := s.clock()
 		p.RevokedAt = &now
 		p.SessionKey = nil
-		p.TokenHash = nil
 		return nil
 	})
 }

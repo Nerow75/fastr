@@ -308,7 +308,7 @@ func TestTrustModeGovernsExpiry(t *testing.T) {
 
 // FR-015: revocation takes effect immediately, and must not leave usable key
 // material behind.
-func TestRevocationIsImmediateAndZeroesKeys(t *testing.T) {
+func TestRevocationIsImmediateAndZeroesTheSessionKey(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.CreatePairing("dev-1", []byte("hash"), []byte("key"), TrustAuto); err != nil {
 		t.Fatalf("CreatePairing: %v", err)
@@ -325,8 +325,15 @@ func TestRevocationIsImmediateAndZeroesKeys(t *testing.T) {
 	}
 
 	got, _ := s.Pairing("dev-1")
-	if len(got.SessionKey) != 0 || len(got.TokenHash) != 0 {
-		t.Error("revocation left key material in the store")
+	if len(got.SessionKey) != 0 {
+		t.Error("revocation left live key material in the store")
+	}
+	// The token hash is deliberately kept. It cannot be turned back into a
+	// credential, and it is what lets the revoked device be told "access was
+	// removed" rather than "this device is not paired", which are different
+	// corrective actions under FR-038.
+	if len(got.TokenHash) == 0 {
+		t.Error("revocation dropped the token hash, so the device cannot be told why it failed")
 	}
 	// The record itself survives, because FR-016 requires the user to see that
 	// a pairing lapsed rather than have it vanish.

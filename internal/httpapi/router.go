@@ -1,0 +1,223 @@
+package httpapi
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"log/slog"
+	"net/http"
+
+	"github.com/Nerow75/fastr/internal/app"
+	"github.com/Nerow75/fastr/internal/pairing"
+	"github.com/Nerow75/fastr/internal/store"
+)
+
+// Deps is everything the handlers need.
+type Deps struct {
+	Log        *slog.Logger
+	Store      *store.Store
+	Sessions   *pairing.Sessions
+	Codes      *pairing.Codes
+	Handshakes *pairing.Handshakes
+	Bundle     fs.FS
+	Events     *Events
+	// DeviceName and DeviceID identify this instance to peers.
+	DeviceName string
+	DeviceID   string
+	// Trusted reports whether a request arrived on the trusted listener. It is
+	// a function so the server can answer per connection rather than globally.
+	Trusted func(*http.Request) bool
+}
+
+// NewRouter builds the request multiplexer.
+func NewRouter(d Deps) http.Handler {
+	mux := http.NewServeMux()
+
+	// Unauthenticated by design. /connect carries no user data: a name, a
+	// protocol version, and an identifier, all of which the mDNS record already
+	// broadcasts to anyone on the network.
+	mux.HandleFunc("GET /connect", d.handleConnect)
+
+	// Pairing. These cannot require a session, because their purpose is to
+	// create one. They are protected by the code and the handshake instead.
+	mux.HandleFunc("POST /api/pair/init", d.handlePairInit)
+	mux.HandleFunc("POST /api/pair/confirm", d.handlePairConfirm)
+
+	// Everything else requires an active pairing. FR-011.
+	mux.Handle("GET /api/devices", d.authenticated(d.handleDevices))
+	mux.Handle("GET /api/pairings", d.authenticated(d.handlePairings))
+	mux.Handle("DELETE /api/pairings/{id}", d.authenticated(d.handleRevoke))
+	mux.Handle("PATCH /api/pairings/{id}", d.authenticated(d.handlePairingUpdate))
+	mux.Handle("GET /api/events", d.authenticatedRaw(d.handleEvents))
+
+	// The web application. Served last so it catches everything unmatched.
+	mux.Handle("/", assetHandler(d.Bundle))
+
+	return securityWrapper(mux)
+}
+
+// securityWrapper applies headers that hold for every response, including the
+// API. The asset handler adds its own content policy on top.
+func securityWrapper(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		// The API is reached from the page it is served with, and nothing else.
+		// No CORS headers means no cross-origin caller, which is the correct
+		// posture for a server that only ever talks to its own bundle.
+		next.ServeHTTP(w, r)
+	})
+}
+
+// authenticated wraps a handler that exchanges sealed JSON payloads.
+func (d Deps) authenticated(h func(*Session, http.ResponseWriter, *http.Request)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, ok := d.resolve(w, r)
+		if !ok {
+			return
+		}
+		h(s, w, r)
+	})
+}
+
+// authenticatedRaw wraps a handler that writes its own body, such as the event
+// stream, which cannot be a single sealed payload.
+func (d Deps) authenticatedRaw(h func(*Session, http.ResponseWriter, *http.Request)) http.Handler {
+	return d.authenticated(h)
+}
+
+// Session pairs the resolved identity with the request's sealed body.
+type Session struct {
+	*pairing.Session
+	// Body is the decrypted request payload, empty when there was none.
+	Body []byte
+	deps Deps
+}
+
+// resolve authorizes the request and decrypts its body.
+func (d Deps) resolve(w http.ResponseWriter, r *http.Request) (*Session, bool) {
+	trusted := d.Trusted != nil && d.Trusted(r)
+
+	ps, err := d.Sessions.Resolve(r, trusted)
+	if err != nil {
+		d.writeError(w, r, authError(err))
+		return nil, false
+	}
+
+	body, err := d.openBody(ps, r)
+	if err != nil {
+		d.writeError(w, r, err)
+		return nil, false
+	}
+
+	return &Session{Session: ps, Body: body, deps: d}, true
+}
+
+// maxControlBody bounds a control-plane payload. Bulk content never travels
+// through this path, so a megabyte is generous.
+const maxControlBody = 1 << 20
+
+// openBody decrypts a sealed request body.
+func (d Deps) openBody(s *pairing.Session, r *http.Request) ([]byte, error) {
+	if r.ContentLength == 0 || r.Body == nil {
+		return nil, nil
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxControlBody))
+	if err != nil {
+		return nil, app.Errorf(app.CodeInvalidRequest, err)
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	sealed, err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(raw)))
+	if err != nil {
+		return nil, app.Errorf(app.CodeInvalidRequest, err)
+	}
+
+	plain, err := s.Envelope.Open(r.Method, r.URL.Path, pairing.ProtocolVersion, sealed)
+	if err != nil {
+		if errors.Is(err, pairing.ErrReplay) {
+			return nil, app.Errorf(app.CodeReplay, err)
+		}
+		return nil, app.Errorf(app.CodeInvalidRequest, err)
+	}
+	return plain, nil
+}
+
+// writeJSON seals a response payload and writes it.
+func (s *Session) writeJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
+	plain, err := json.Marshal(v)
+	if err != nil {
+		s.deps.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	sealed, err := s.Envelope.Seal(r.Method, r.URL.Path, pairing.ProtocolVersion, plain)
+	if err != nil {
+		s.deps.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(sealed))
+}
+
+// writeError renders a catalogue error.
+//
+// The body carries a stable code, a translation key, and parameters, never an
+// assembled message: the server does not know the reader's language, and
+// FR-039a forbids hard-coded user-facing text.
+//
+// It is written in the clear rather than sealed, because an authorization
+// failure has no session to seal with, and a client that cannot decrypt an
+// error learns nothing about why it failed.
+func (d Deps) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	e := app.AsError(err)
+
+	if e.Severe() {
+		// The path is included for a severe error because it is where an
+		// operator starts looking. The offending value is not: a traversal
+		// attempt's payload has no business in a log line.
+		d.Log.Warn("request refused",
+			"code", string(e.Code), "method", r.Method, "path", r.URL.Path, "error", e)
+	} else {
+		d.Log.Debug("request refused", "code", string(e.Code), "path", r.URL.Path)
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(e.Status())
+	_ = json.NewEncoder(w).Encode(e.Body())
+}
+
+// writePlainJSON writes an unsealed payload, for endpoints that have no session
+// by definition.
+func (d Deps) writePlainJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// authError maps an authorization failure to its catalogue code.
+//
+// The distinctions matter: FR-038 requires a corrective action, and "pair the
+// device again" is different advice from "ask the owner to approve it".
+func authError(err error) error {
+	switch {
+	case errors.Is(err, pairing.ErrTrustedOnly):
+		return app.Errorf(app.CodeTrustedRequired, err)
+	case errors.Is(err, store.ErrPairingRevoked):
+		return app.Errorf(app.CodePairingRevoked, err)
+	case errors.Is(err, store.ErrPairingExpired):
+		return app.Errorf(app.CodePairingExpired, err)
+	case errors.Is(err, pairing.ErrNoCredential), errors.Is(err, pairing.ErrBadCredential):
+		return app.Errorf(app.CodeUnauthorized, err)
+	default:
+		return app.Errorf(app.CodeUnauthorized, err)
+	}
+}
