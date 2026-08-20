@@ -50,19 +50,19 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 ### Platform and configuration
 
-- [ ] T011 [P] Define the platform abstraction interface in `internal/platform/platform.go` covering paths, free space, filename rules, autostart, tray
-- [ ] T012 [P] Implement the Linux platform in `internal/platform/platform_linux.go` using `statfs` and XDG paths
-- [ ] T013 [P] Implement the Windows platform in `internal/platform/platform_windows.go` using `GetDiskFreeSpaceEx`, `%LOCALAPPDATA%`, reserved-name and trailing-dot rules
-- [ ] T014 Implement settings load, save, and defaults in `internal/config/config.go`, defaulting the receive folder outside system folders
-- [ ] T015 [P] Write parity tests asserting identical behavior on both platforms in `test/integration/platform_parity_test.go`
+- [X] T011 [P] Define the platform abstraction interface in `internal/platform/platform.go` covering paths, free space, filename rules, autostart, tray
+- [X] T012 [P] Implement the Linux platform in `internal/platform/platform_linux.go` using `statfs` and XDG paths
+- [X] T013 [P] Implement the Windows platform in `internal/platform/platform_windows.go` using `GetDiskFreeSpaceEx`, `%LOCALAPPDATA%`, reserved-name and trailing-dot rules
+- [X] T014 Implement settings load, save, and defaults in `internal/config/config.go`, defaulting the receive folder outside system folders
+- [X] T015 [P] Write parity tests asserting identical behavior on both platforms in `test/integration/platform_parity_test.go`
 
 ### Persistence
 
-- [ ] T016 Implement the bbolt store, bucket layout, and open/close lifecycle in `internal/store/store.go` per data-model.md
-- [ ] T017 [P] Implement the `Device` and `Pairing` records with their validation rules in `internal/store/devices.go`
-- [ ] T018 [P] Implement the `Transfer`, `TransferItem`, and queue records in `internal/store/transfers.go`
-- [ ] T019 [P] Implement `HistoryEntry` and `RelaySession` records in `internal/store/history.go`
-- [ ] T020 Implement the schema version and migration hook in `internal/store/migrate.go`
+- [X] T016 Implement the bbolt store, bucket layout, and open/close lifecycle in `internal/store/store.go` per data-model.md
+- [X] T017 [P] Implement the `Device` and `Pairing` records with their validation rules in `internal/store/devices.go`
+- [X] T018 [P] Implement the `Transfer`, `TransferItem`, and queue records in `internal/store/transfers.go`
+- [X] T019 [P] Implement `HistoryEntry` and `RelaySession` records in `internal/store/history.go`
+- [X] T020 Implement the schema version and migration hook in `internal/store/migrate.go`
 
 ### Observability and errors
 
