@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -41,12 +42,17 @@ type ticket struct {
 type Tickets struct {
 	mu     sync.Mutex
 	issued map[string]ticket
+	scoped map[string]scopedTicket
 	now    func() time.Time
 }
 
 // NewTickets returns an empty issuer.
 func NewTickets() *Tickets {
-	return &Tickets{issued: make(map[string]ticket), now: time.Now}
+	return &Tickets{
+		issued: make(map[string]ticket),
+		scoped: make(map[string]scopedTicket),
+		now:    time.Now,
+	}
 }
 
 // SetClock replaces the time source, for tests.
@@ -124,4 +130,107 @@ func (d Deps) handleEventTicket(s *Session, w http.ResponseWriter, r *http.Reque
 		"ticket":     value,
 		"expires_in": int(ticketTTL.Seconds()),
 	})
+}
+
+// Scoped tickets, for content downloads.
+//
+// The event stream is not the only place a browser cannot set a header. A file
+// is saved by the browser's own download manager, which is the only mechanism
+// that writes a multi-gigabyte file to a phone without holding it in memory,
+// and it fetches a plain URL.
+//
+// A stream ticket will not do here, for one reason: the download manager
+// re-requests the URL with a Range when it resumes, and a single-use ticket
+// would be gone. So a content ticket is multi-use and *scoped*: it authorizes
+// exactly one item of one transfer, for a device already a party to it.
+// Leaking one exposes a file its holder was being sent anyway.
+
+// contentTicketTTL bounds a scoped ticket. Long enough for a large transfer
+// that resumes a few times, short enough that a URL left in history stops
+// working the same day.
+const contentTicketTTL = 6 * time.Hour
+
+type scopedTicket struct {
+	deviceID  string
+	scope     string
+	expiresAt time.Time
+}
+
+// IssueScoped mints a multi-use ticket bound to one scope.
+func (ts *Tickets) IssueScoped(deviceID, scope string) (string, error) {
+	raw := make([]byte, ticketSize)
+	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
+		return "", err
+	}
+	value := base64.RawURLEncoding.EncodeToString(raw)
+
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.scoped == nil {
+		ts.scoped = make(map[string]scopedTicket)
+	}
+	ts.sweepScopedLocked()
+	ts.scoped[value] = scopedTicket{
+		deviceID:  deviceID,
+		scope:     scope,
+		expiresAt: ts.now().Add(contentTicketTTL),
+	}
+
+	return value, nil
+}
+
+// RedeemScoped checks a ticket against the scope it must authorize.
+//
+// Unlike a stream ticket it is not consumed, because the download manager comes
+// back for the same URL when it resumes.
+func (ts *Tickets) RedeemScoped(value, scope string) (string, error) {
+	if value == "" {
+		return "", errBadTicket
+	}
+
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	for issued, t := range ts.scoped {
+		if subtle.ConstantTimeCompare([]byte(issued), []byte(value)) != 1 {
+			continue
+		}
+		if ts.now().After(t.expiresAt) {
+			delete(ts.scoped, issued)
+			return "", errBadTicket
+		}
+		// A ticket for one file must not open another. Without this it would
+		// be a general credential in a URL, which is what these exist to avoid.
+		if subtle.ConstantTimeCompare([]byte(t.scope), []byte(scope)) != 1 {
+			return "", errBadTicket
+		}
+		return t.deviceID, nil
+	}
+	return "", errBadTicket
+}
+
+// RevokeScope drops every ticket for a scope, when its transfer ends.
+func (ts *Tickets) RevokeScope(scope string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	for value, t := range ts.scoped {
+		if t.scope == scope {
+			delete(ts.scoped, value)
+		}
+	}
+}
+
+func (ts *Tickets) sweepScopedLocked() {
+	now := ts.now()
+	for value, t := range ts.scoped {
+		if now.After(t.expiresAt) {
+			delete(ts.scoped, value)
+		}
+	}
+}
+
+// ContentScope names one item of one transfer.
+func ContentScope(transferID string, itemIndex int) string {
+	return fmt.Sprintf("%s#%d", transferID, itemIndex)
 }

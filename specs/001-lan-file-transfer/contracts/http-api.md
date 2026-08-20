@@ -85,13 +85,38 @@ header a client could set.
 ### Content, downward
 
 ```http
-GET /api/transfers/{id}/items/{index}/content
+POST /api/transfers/{id}/items/{index}/ticket  -> { "ticket": "...", "expires_in": 21600 }
+GET  /api/transfers/{id}/items/{index}/content?ticket=...
 Range: bytes=1073741824-
 ```
 
 Responds `206` with `Content-Range` and streams to the end. `Accept-Ranges: bytes` is always
 advertised, which is what lets a browser download manager resume without the application's help.
-`Content-Disposition` carries the sanitized name.
+`Content-Disposition` carries the sanitized name, RFC 5987 encoded so a non-ASCII name survives.
+
+This is the only route that accepts a **scoped ticket** in place of the bearer header. A file is
+saved by the browser's own download manager, the only mechanism that writes a multi-gigabyte file
+to a phone without holding it in memory, and it fetches a plain URL. Unlike a stream ticket a
+content ticket is multi-use, because the download manager re-requests the URL when it resumes, and
+it is bound to exactly one item of one transfer: leaking one exposes a file its holder was being
+sent anyway. Revocation invalidates it immediately.
+
+### Content, sideways: how the bytes get there
+
+A browser never reveals a file's path, so the server cannot read the file the user dropped on the
+desktop page, and a phone cannot accept an inbound connection. The receiver's fetch registers a
+demand and waits; the sender attaches its body to it:
+
+```http
+POST /api/transfers/{id}/items/{index}/supply?offset=1073741824
+GET  /api/transfers/{id}/waiting  -> { "waiting": [ { "item": 0, "offset": 0 } ] }
+```
+
+The bytes stream from one request to the other and are never written to disk. The supply request
+does not return until they have arrived, so the sending page never reports a file as sent while it
+is still in flight. A supplier whose offset does not match the demand is refused: a hole in a file
+still passes a length check. `/waiting` exists so a page that reconnects mid-transfer can resume
+without having seen the event it missed.
 
 ### Content, upward
 

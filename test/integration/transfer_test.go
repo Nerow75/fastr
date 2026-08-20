@@ -410,3 +410,142 @@ func waitForPipe(t *testing.T, h *harness, want int) {
 	}
 	t.Fatalf("expected %d waiting demands, got %d", want, h.pipes.Waiting())
 }
+
+// A download is performed by the browser's own manager, which cannot set a
+// header. These tests are about the scoped ticket that replaces it, and about
+// how narrow its power is.
+
+func (d *device) contentTicket(t *testing.T, transferID string, index int) string {
+	t.Helper()
+
+	path := fmt.Sprintf("/api/transfers/%s/items/%d/ticket", transferID, index)
+	resp := d.do("POST", path, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("ticket: status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Ticket string `json:"ticket"`
+	}
+	d.open("POST", path, resp, &out)
+	return out.Ticket
+}
+
+func TestContentTicketAuthorizesOneItemOnly(t *testing.T) {
+	h := newHarness(t)
+	sender := h.pair()
+	receiver := h.pair()
+
+	payload := []byte("the file")
+	tr := sender.declare(t, receiver.ID, "a.bin", uint64(len(payload)))
+	other := sender.declare(t, receiver.ID, "b.bin", uint64(len(payload)))
+
+	ticket := receiver.contentTicket(t, tr.ID, 0)
+
+	// The right file: the ticket works, without any credential header.
+	var body []byte
+	var status int
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp, err := h.server.Client().Get( //nolint:noctx // test client
+			fmt.Sprintf("%s/api/transfers/%s/items/0/content?ticket=%s", h.server.URL, tr.ID, ticket))
+		if err != nil {
+			t.Errorf("get: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		status = resp.StatusCode
+		body, _ = io.ReadAll(resp.Body)
+	}()
+
+	waitForPipe(t, h, 1)
+	sender.supply(t, tr.ID, 0, 0, payload).Body.Close()
+	wg.Wait()
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if !bytes.Equal(body, payload) {
+		t.Error("the ticketed download returned the wrong bytes")
+	}
+
+	// A different file: the same ticket must not open it. Otherwise it would be
+	// a general credential sitting in a URL.
+	resp, err := h.server.Client().Get( //nolint:noctx // test client
+		fmt.Sprintf("%s/api/transfers/%s/items/0/content?ticket=%s", h.server.URL, other.ID, ticket))
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("a ticket for one file opened another: status %d", resp.StatusCode)
+	}
+}
+
+func TestContentWithoutCredentialOrTicketIsRefused(t *testing.T) {
+	h := newHarness(t)
+	sender := h.pair()
+	receiver := h.pair()
+
+	tr := sender.declare(t, receiver.ID, "a.bin", 10)
+
+	for _, query := range []string{"", "?ticket=", "?ticket=guessed"} {
+		resp, err := h.server.Client().Get( //nolint:noctx // test client
+			fmt.Sprintf("%s/api/transfers/%s/items/0/content%s", h.server.URL, tr.ID, query))
+		if err != nil {
+			t.Fatalf("get: %v", err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("query %q: status %d, want 401", query, resp.StatusCode)
+		}
+	}
+}
+
+// Revocation means immediately, including for a ticket already minted.
+func TestRevocationInvalidatesAContentTicket(t *testing.T) {
+	h := newHarness(t)
+	sender := h.pair()
+	receiver := h.pair()
+
+	tr := sender.declare(t, receiver.ID, "a.bin", 10)
+	ticket := receiver.contentTicket(t, tr.ID, 0)
+
+	sender.do("DELETE", "/api/pairings/"+receiver.ID, nil).Body.Close()
+
+	resp, err := h.server.Client().Get( //nolint:noctx // test client
+		fmt.Sprintf("%s/api/transfers/%s/items/0/content?ticket=%s", h.server.URL, tr.ID, ticket))
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+	if body := errorBody(t, resp); body["error"] != "pairing_revoked" {
+		t.Errorf("error = %v, want pairing_revoked", body["error"])
+	}
+}
+
+// An outsider cannot mint a ticket for a transfer it is not part of.
+func TestOutsiderCannotMintAContentTicket(t *testing.T) {
+	h := newHarness(t)
+	sender := h.pair()
+	receiver := h.pair()
+	outsider := h.pair()
+
+	tr := sender.declare(t, receiver.ID, "private.pdf", 10)
+
+	resp := outsider.do("POST", fmt.Sprintf("/api/transfers/%s/items/0/ticket", tr.ID), map[string]any{})
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Error("an outsider minted a ticket for someone else's transfer")
+	}
+}

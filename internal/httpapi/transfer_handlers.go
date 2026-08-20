@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Nerow75/fastr/internal/app"
+	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/store"
 	"github.com/Nerow75/fastr/internal/transfer"
 )
@@ -414,4 +415,74 @@ func pipeError(err error) error {
 	default:
 		return app.Errorf(app.CodeInternal, err)
 	}
+}
+
+// handleContentTicket mints a scoped ticket for one item.
+//
+// The caller must already be a party to the transfer, so the ticket grants
+// nothing it did not already have. It exists only because a download cannot
+// carry a header.
+func (d Deps) handleContentTicket(s *Session, w http.ResponseWriter, r *http.Request) {
+	tr, ok := d.participantTransfer(s, w, r)
+	if !ok {
+		return
+	}
+
+	index, _, ok := d.itemOf(tr, w, r)
+	if !ok {
+		return
+	}
+
+	scope := ContentScope(tr.ID.String(), index)
+	value, err := d.Tickets.IssueScoped(s.DeviceID, scope)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	s.writeJSON(w, r, http.StatusOK, map[string]any{
+		"ticket":     value,
+		"expires_in": int(contentTicketTTL.Seconds()),
+	})
+}
+
+// handleFetchContentTicketed authorizes a download by header or by scoped
+// ticket, then hands over to the streaming path.
+//
+// Both are accepted because both are legitimate: a client fetching
+// programmatically sets a header, and the browser's download manager cannot.
+func (d Deps) handleFetchContentTicketed(w http.ResponseWriter, r *http.Request) {
+	trusted := d.Trusted != nil && d.Trusted(r)
+
+	if ps, err := d.Sessions.Resolve(r, trusted); err == nil {
+		d.handleFetchContent(&Session{Session: ps, deps: d}, w, r)
+		return
+	}
+
+	id := store.ID(r.PathValue("id"))
+	index, convErr := strconv.Atoi(r.PathValue("index"))
+	if convErr != nil || id.Validate() != nil {
+		d.writeError(w, r, app.New(app.CodeInvalidRequest))
+		return
+	}
+
+	deviceID, err := d.Tickets.RedeemScoped(
+		r.URL.Query().Get("ticket"), ContentScope(id.String(), index))
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeUnauthorized, err))
+		return
+	}
+
+	// The pairing may have been revoked since the ticket was minted, and
+	// revocation means immediately.
+	p, err := d.Store.ActivePairing(deviceID)
+	if err != nil {
+		d.writeError(w, r, authError(err))
+		return
+	}
+
+	d.handleFetchContent(&Session{
+		Session: &pairing.Session{DeviceID: deviceID, Pairing: p, Trusted: trusted},
+		deps:    d,
+	}, w, r)
 }

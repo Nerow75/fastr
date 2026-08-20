@@ -78,7 +78,10 @@ func NewRouter(d Deps) http.Handler {
 	// that file content travels in the clear there, and the interface says so.
 	// These stream, so they must not pass through the envelope middleware,
 	// which reads a whole body into memory.
-	mux.Handle("GET /api/transfers/{id}/items/{index}/content", d.streaming(d.handleFetchContent))
+	mux.Handle("POST /api/transfers/{id}/items/{index}/ticket", d.authenticated(d.handleContentTicket))
+	// The only route that accepts a scoped ticket instead of a header: a
+	// download is performed by the browser's own manager, which cannot set one.
+	mux.HandleFunc("GET /api/transfers/{id}/items/{index}/content", d.handleFetchContentTicketed)
 	mux.Handle("POST /api/transfers/{id}/items/{index}/supply", d.streaming(d.handleSupplyContent))
 	// The stream authenticates with a single-use ticket rather than a bearer
 	// header, because EventSource cannot set one. See tickets.go.
