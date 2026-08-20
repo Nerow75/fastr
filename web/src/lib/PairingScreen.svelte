@@ -23,6 +23,8 @@
   let code = $state('');
   let deviceName = $state('');
   let busy = $state(false);
+  let waiting = $state(false);
+  let controller: AbortController | null = null;
 
   const CODE_LENGTH = 6;
   let valid = $derived(/^\d{6}$/.test(code));
@@ -32,8 +34,15 @@
     if (!valid || busy) return;
 
     busy = true;
+    controller = new AbortController();
     try {
-      onpaired(await Session.pair(code, deviceName.trim() || defaultName()));
+      const session = await Session.pair(
+        code,
+        deviceName.trim() || defaultName(),
+        () => (waiting = true),
+        controller.signal,
+      );
+      onpaired(session);
     } catch (failure) {
       onerror(failure);
       // The code is single use on the server, so a failed attempt can never be
@@ -42,8 +51,15 @@
       code = '';
     } finally {
       busy = false;
+      waiting = false;
+      controller = null;
     }
   }
+
+  function abandon(): void {
+    controller?.abort();
+  }
+
 
   function defaultName(): string {
     return desktop ? 'This computer' : 'Phone';
@@ -51,10 +67,19 @@
 </script>
 
 <section aria-labelledby="pairing-title">
-  <h2 id="pairing-title">{t('pairing.title')}</h2>
-  <p>{t('pairing.scan_instruction')}</p>
+  {#if waiting}
+    <!--
+      The request is queued and a human has to answer it on the computer. Saying
+      so beats a spinner: the user has somewhere to go and something to do.
+    -->
+    <h2 id="pairing-title">{t('pairing.waiting_title')}</h2>
+    <p aria-live="polite">{t('pairing.waiting_body', { device: t('app.name') })}</p>
+    <button type="button" class="secondary" onclick={abandon}>{t('pairing.cancel')}</button>
+  {:else}
+    <h2 id="pairing-title">{t('pairing.title')}</h2>
+    <p>{t('pairing.scan_instruction')}</p>
 
-  <form onsubmit={submit}>
+    <form onsubmit={submit}>
     <div class="field">
       <label for="pairing-code">{t('pairing.code_label')}</label>
       <input
@@ -82,10 +107,11 @@
       />
     </div>
 
-    <button type="submit" disabled={!valid || busy}>
-      {t('pairing.submit')}
-    </button>
-  </form>
+      <button type="submit" disabled={!valid || busy}>
+        {t('pairing.submit')}
+      </button>
+    </form>
+  {/if}
 </section>
 
 <style>
@@ -145,5 +171,11 @@
   button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
   }
 </style>

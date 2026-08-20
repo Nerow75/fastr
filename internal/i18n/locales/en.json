@@ -1,13 +1,11 @@
 {
   "app.name": "fastr",
   "app.tagline": "Send files of any size over your own network",
-
   "nav.devices": "Devices",
   "nav.transfers": "Transfers",
   "nav.history": "History",
   "nav.settings": "Settings",
   "nav.skip_to_content": "Skip to content",
-
   "pairing.title": "Connect this phone",
   "pairing.scan_instruction": "Scan the code on your computer, or type it below.",
   "pairing.code_label": "Pairing code",
@@ -17,7 +15,6 @@
   "pairing.approve": "Allow",
   "pairing.reject": "Refuse",
   "pairing.approve_question": "Allow {device} to send and receive files?",
-
   "protection.simple.label": "Simple mode",
   "protection.simple.notice": "File content is readable by anyone on this network. Pairing and credentials are encrypted.",
   "protection.simple.short": "Content readable on this network",
@@ -25,7 +22,6 @@
   "protection.trusted.notice": "File content is encrypted end to end.",
   "protection.setup_cta": "Set up trusted mode",
   "protection.required": "This device requires trusted mode.",
-
   "device.reachable": "Reachable",
   "device.unreachable": "Unreachable",
   "device.paired": "Paired",
@@ -36,7 +32,6 @@
   "device.rename": "Rename",
   "device.empty": "No devices found yet. Make sure the other device is on this network.",
   "device.manual_entry": "Enter an address manually",
-
   "transfer.send": "Send",
   "transfer.cancel": "Cancel",
   "transfer.accept": "Accept",
@@ -54,7 +49,6 @@
   "transfer.state.failed": "Failed",
   "transfer.state.cancelled": "Cancelled",
   "transfer.renamed": "Saved as {stored} because {original} is not a valid name here.",
-
   "queue.title": "Queue",
   "queue.position": "Position {n} of {total}",
   "queue.move_up": "Move up",
@@ -63,12 +57,10 @@
   "queue.clear": "Clear the queue",
   "queue.empty": "Nothing waiting.",
   "queue.one_at_a_time": "One transfer runs at a time, so each goes at full speed.",
-
   "history.title": "History",
   "history.clear": "Clear history",
   "history.empty": "No transfers yet.",
   "history.entry": "{count} files, {size}, {outcome}",
-
   "settings.device_name": "This device is called",
   "settings.receive_folder": "Save incoming files to",
   "settings.language": "Language",
@@ -77,13 +69,11 @@
   "settings.stop": "Stop fastr",
   "settings.running": "fastr is listening on this network",
   "settings.stopped": "fastr is not listening",
-
   "a11y.transfer_started": "Transfer of {name} started",
   "a11y.transfer_interrupted": "Transfer of {name} interrupted",
   "a11y.transfer_resumed": "Transfer of {name} resumed",
   "a11y.transfer_completed": "Transfer of {name} complete",
   "a11y.transfer_failed": "Transfer of {name} failed",
-
   "error.unauthorized": "This device is not paired. Pair it again from the computer.",
   "error.pairing_revoked": "Access was removed for this device. Pair it again to continue.",
   "error.pairing_expired": "This pairing expired after a long period without use. Pair the device again.",
@@ -105,7 +95,13 @@
   "error.invalid_request": "The request was malformed and was refused. Reload the page and try again.",
   "error.not_found": "Not found.",
   "error.internal": "Something went wrong on the computer running fastr. Check its window for details.",
-
   "sweep.removed_partials": "Removed {count} unfinished transfers older than 7 days.",
-  "sweep.expired_pairings": "{count} pairings expired after a long period without use."
+  "sweep.expired_pairings": "{count} pairings expired after a long period without use.",
+  "pairing.waiting_title": "Waiting for approval",
+  "pairing.waiting_body": "Go to {device} and allow this device. The request expires in two minutes.",
+  "pairing.rejected": "The request was refused on the computer. Ask whoever is there, then try again with a new code.",
+  "pairing.expired": "Nobody answered in time. Get a new code from the computer and try again.",
+  "pairing.abandoned": "The pairing was cancelled on this device. Start again when you are ready.",
+  "pairing.already_collected": "Another tab completed this pairing. Close this one and use that tab, or start again.",
+  "pairing.cancel": "Cancel"
 }

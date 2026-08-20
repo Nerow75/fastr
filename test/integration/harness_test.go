@@ -32,6 +32,7 @@ type harness struct {
 	sessions *pairing.Sessions
 	events   *httpapi.Events
 	tickets  *httpapi.Tickets
+	pendings *pairing.Pendings
 	logs     *bytes.Buffer
 	scrubber *app.Scrubber
 }
@@ -54,6 +55,7 @@ func newHarness(t *testing.T) *harness {
 	sessions := pairing.NewSessions(st)
 	events := httpapi.NewEvents()
 	tickets := httpapi.NewTickets()
+	pendings := pairing.NewPendings()
 
 	bundle := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fastr</title>")},
@@ -65,6 +67,7 @@ func newHarness(t *testing.T) *harness {
 		Sessions:   sessions,
 		Codes:      codes,
 		Handshakes: pairing.NewHandshakes(),
+		Pendings:   pendings,
 		Bundle:     fs.FS(bundle),
 		Events:     events,
 		Tickets:    tickets,
@@ -78,7 +81,7 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		t: t, server: srv, store: st, codes: codes,
-		sessions: sessions, events: events, tickets: tickets,
+		sessions: sessions, events: events, tickets: tickets, pendings: pendings,
 		logs: logs, scrubber: scrubber,
 	}
 }
@@ -125,11 +128,13 @@ func (h *harness) pair() *device {
 		h.t.Fatalf("derive: %v", err)
 	}
 
+	// A correct code buys a place in the queue, not access: FR-010 wants a
+	// human on the host to decide.
 	var confirm struct {
-		Credential string `json:"credential"`
-		DeviceID   string `json:"device_id"`
+		PendingID string `json:"pending_id"`
+		State     string `json:"state"`
 	}
-	h.postPlain("/api/pair/confirm", map[string]any{
+	h.postAccepted("/api/pair/confirm", map[string]any{
 		"handshake_id": init.HandshakeID,
 		"code":         code.Display(),
 		"proof":        base64.StdEncoding.EncodeToString(proof),
@@ -137,16 +142,126 @@ func (h *harness) pair() *device {
 		"platform":     "android",
 	}, &confirm)
 
+	if confirm.State != "awaiting_approval" {
+		h.t.Fatalf("state = %q, want awaiting_approval", confirm.State)
+	}
+
+	h.approve(confirm.PendingID)
+
+	credential := h.collectCredential(confirm.PendingID, key)
+
 	env, err := pairing.NewEnvelope(key, pairing.ClientToServer)
 	if err != nil {
 		h.t.Fatalf("envelope: %v", err)
 	}
 
-	return &device{h: h, ID: confirm.DeviceID, credential: confirm.Credential, envelope: env}
+	var deviceID string
+	if pending, err := h.pendings.Get(confirm.PendingID); err == nil {
+		deviceID = pending.DeviceID()
+	}
+	if deviceID == "" {
+		deviceID = h.lastPairedDevice()
+	}
+
+	return &device{h: h, ID: deviceID, credential: credential, envelope: env}
+}
+
+// approve is the human on the host saying yes.
+func (h *harness) approve(pendingID string) {
+	h.t.Helper()
+	h.postPlain("/api/pair/pending/"+pendingID+"/approve", map[string]any{}, nil)
+}
+
+// collectCredential polls the status endpoint and unseals the credential.
+//
+// A throwaway envelope is used, not the session one: opening here would
+// advance the session envelope's receive counter, and the first real response
+// would then look like a replay.
+func (h *harness) collectCredential(pendingID string, key []byte) string {
+	h.t.Helper()
+
+	const path = "/api/pair/status"
+	var status struct {
+		State      string `json:"state"`
+		Credential string `json:"credential"`
+		DeviceID   string `json:"device_id"`
+	}
+	h.getPlain(path+"?pending="+pendingID, &status)
+
+	if status.State != "approved" {
+		h.t.Fatalf("state = %q, want approved", status.State)
+	}
+	if status.Credential == "" {
+		h.t.Fatal("no credential returned after approval")
+	}
+
+	opener, err := pairing.NewEnvelope(key, pairing.ClientToServer)
+	if err != nil {
+		h.t.Fatalf("envelope: %v", err)
+	}
+	sealed, err := base64.StdEncoding.DecodeString(status.Credential)
+	if err != nil {
+		h.t.Fatalf("decode credential: %v", err)
+	}
+	plain, err := opener.Open(http.MethodGet, path, pairing.ProtocolVersion, sealed)
+	if err != nil {
+		h.t.Fatalf("open credential: %v", err)
+	}
+	return string(plain)
+}
+
+// lastPairedDevice finds the most recently created pairing, for the case where
+// the pending entry has already been forgotten.
+func (h *harness) lastPairedDevice() string {
+	h.t.Helper()
+
+	pairings, err := h.store.Pairings()
+	if err != nil || len(pairings) == 0 {
+		h.t.Fatalf("no pairing was created: %v", err)
+	}
+	newest := pairings[0]
+	for _, p := range pairings[1:] {
+		if p.CreatedAt.After(newest.CreatedAt) {
+			newest = p
+		}
+	}
+	return newest.DeviceID
+}
+
+// postAccepted posts and expects 202.
+func (h *harness) postAccepted(path string, body any, out any) {
+	h.t.Helper()
+	h.postExpecting(path, body, out, http.StatusAccepted)
+}
+
+// getPlain fetches an unsealed JSON payload.
+func (h *harness) getPlain(path string, out any) {
+	h.t.Helper()
+
+	resp, err := h.server.Client().Get(h.server.URL + path) //nolint:noctx // test client
+	if err != nil {
+		h.t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		h.t.Fatalf("GET %s: status %d: %s", path, resp.StatusCode, raw)
+	}
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
+			h.t.Fatalf("decode %s: %v", path, err)
+		}
+	}
 }
 
 // postPlain sends an unsealed request, for the pairing endpoints.
 func (h *harness) postPlain(path string, body any, out any) {
+	h.t.Helper()
+	h.postExpecting(path, body, out, http.StatusOK)
+}
+
+func (h *harness) postExpecting(path string, body any, out any, want int) {
 	h.t.Helper()
 
 	payload, err := json.Marshal(body)
@@ -161,8 +276,8 @@ func (h *harness) postPlain(path string, body any, out any) {
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		h.t.Fatalf("POST %s: status %d: %s", path, resp.StatusCode, raw)
+	if resp.StatusCode != want {
+		h.t.Fatalf("POST %s: status %d, want %d: %s", path, resp.StatusCode, want, raw)
 	}
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {

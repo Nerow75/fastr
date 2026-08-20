@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 
 	"github.com/Nerow75/fastr/internal/app"
@@ -22,6 +23,7 @@ type Deps struct {
 	Sessions   *pairing.Sessions
 	Codes      *pairing.Codes
 	Handshakes *pairing.Handshakes
+	Pendings   *pairing.Pendings
 	Bundle     fs.FS
 	Events     *Events
 	Tickets    *Tickets
@@ -46,6 +48,16 @@ func NewRouter(d Deps) http.Handler {
 	// create one. They are protected by the code and the handshake instead.
 	mux.HandleFunc("POST /api/pair/init", d.handlePairInit)
 	mux.HandleFunc("POST /api/pair/confirm", d.handlePairConfirm)
+	mux.HandleFunc("GET /api/pair/status", d.handlePairStatus)
+
+	// Approving a device is the host deciding, so these are restricted to
+	// loopback: reaching them means holding a session on this machine, which is
+	// the same trust boundary the operating system already enforces and exactly
+	// what "a human on the receiving device" means. They deliberately do not
+	// require a pairing, because on first run the host's own page has none.
+	mux.Handle("GET /api/pair/pending", loopbackOnly(d, d.handlePendingList))
+	mux.Handle("POST /api/pair/pending/{id}/approve", loopbackOnly(d, d.handlePendingApprove))
+	mux.Handle("POST /api/pair/pending/{id}/reject", loopbackOnly(d, d.handlePendingReject))
 
 	// Everything else requires an active pairing. FR-011.
 	mux.Handle("GET /api/devices", d.authenticated(d.handleDevices))
@@ -61,6 +73,23 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("/", assetHandler(d.Bundle))
 
 	return securityWrapper(mux)
+}
+
+// loopbackOnly restricts a handler to requests arriving on the loopback
+// interface, which is the host itself.
+func loopbackOnly(d Deps, h http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			d.writeError(w, r, app.New(app.CodeUnauthorized))
+			return
+		}
+		h(w, r)
+	})
 }
 
 // securityWrapper applies headers that hold for every response, including the

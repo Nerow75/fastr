@@ -1,13 +1,11 @@
 {
   "app.name": "fastr",
   "app.tagline": "Envoyez des fichiers de toute taille sur votre propre réseau",
-
   "nav.devices": "Appareils",
   "nav.transfers": "Transferts",
   "nav.history": "Historique",
   "nav.settings": "Réglages",
   "nav.skip_to_content": "Aller au contenu",
-
   "pairing.title": "Connecter ce téléphone",
   "pairing.scan_instruction": "Scannez le code affiché sur votre ordinateur, ou saisissez-le ci-dessous.",
   "pairing.code_label": "Code d'appairage",
@@ -17,7 +15,6 @@
   "pairing.approve": "Autoriser",
   "pairing.reject": "Refuser",
   "pairing.approve_question": "Autoriser {device} à envoyer et recevoir des fichiers ?",
-
   "protection.simple.label": "Mode simple",
   "protection.simple.notice": "Le contenu des fichiers est lisible par toute personne sur ce réseau. L'appairage et les identifiants, eux, sont chiffrés.",
   "protection.simple.short": "Contenu lisible sur ce réseau",
@@ -25,7 +22,6 @@
   "protection.trusted.notice": "Le contenu des fichiers est chiffré de bout en bout.",
   "protection.setup_cta": "Configurer le mode de confiance",
   "protection.required": "Cet appareil exige le mode de confiance.",
-
   "device.reachable": "Joignable",
   "device.unreachable": "Injoignable",
   "device.paired": "Appairé",
@@ -36,7 +32,6 @@
   "device.rename": "Renommer",
   "device.empty": "Aucun appareil trouvé pour l'instant. Vérifiez que l'autre appareil est sur ce réseau.",
   "device.manual_entry": "Saisir une adresse manuellement",
-
   "transfer.send": "Envoyer",
   "transfer.cancel": "Annuler",
   "transfer.accept": "Accepter",
@@ -54,7 +49,6 @@
   "transfer.state.failed": "Échoué",
   "transfer.state.cancelled": "Annulé",
   "transfer.renamed": "Enregistré sous {stored}, car {original} n'est pas un nom valide ici.",
-
   "queue.title": "File d'attente",
   "queue.position": "Position {n} sur {total}",
   "queue.move_up": "Monter",
@@ -63,12 +57,10 @@
   "queue.clear": "Vider la file",
   "queue.empty": "Rien en attente.",
   "queue.one_at_a_time": "Un seul transfert à la fois, pour que chacun aille à pleine vitesse.",
-
   "history.title": "Historique",
   "history.clear": "Effacer l'historique",
   "history.empty": "Aucun transfert pour l'instant.",
   "history.entry": "{count} fichiers, {size}, {outcome}",
-
   "settings.device_name": "Cet appareil s'appelle",
   "settings.receive_folder": "Enregistrer les fichiers reçus dans",
   "settings.language": "Langue",
@@ -77,13 +69,11 @@
   "settings.stop": "Arrêter fastr",
   "settings.running": "fastr est à l'écoute sur ce réseau",
   "settings.stopped": "fastr n'est pas à l'écoute",
-
   "a11y.transfer_started": "Transfert de {name} démarré",
   "a11y.transfer_interrupted": "Transfert de {name} interrompu",
   "a11y.transfer_resumed": "Transfert de {name} repris",
   "a11y.transfer_completed": "Transfert de {name} terminé",
   "a11y.transfer_failed": "Transfert de {name} échoué",
-
   "error.unauthorized": "Cet appareil n'est pas appairé. Appairez-le à nouveau depuis l'ordinateur.",
   "error.pairing_revoked": "L'accès de cet appareil a été retiré. Appairez-le à nouveau pour continuer.",
   "error.pairing_expired": "Cet appairage a expiré après une longue période sans usage. Appairez l'appareil à nouveau.",
@@ -105,7 +95,13 @@
   "error.invalid_request": "La requête était mal formée et a été refusée. Rechargez la page et réessayez.",
   "error.not_found": "Introuvable.",
   "error.internal": "Quelque chose s'est mal passé sur l'ordinateur qui fait tourner fastr. Regardez sa fenêtre pour en savoir plus.",
-
   "sweep.removed_partials": "{count} transferts inachevés de plus de 7 jours ont été supprimés.",
-  "sweep.expired_pairings": "{count} appairages ont expiré après une longue période sans usage."
+  "sweep.expired_pairings": "{count} appairages ont expiré après une longue période sans usage.",
+  "pairing.waiting_title": "En attente de validation",
+  "pairing.waiting_body": "Allez sur {device} et autorisez cet appareil. La demande expire dans deux minutes.",
+  "pairing.rejected": "La demande a été refusée sur l'ordinateur. Demandez à la personne présente, puis réessayez avec un nouveau code.",
+  "pairing.expired": "Personne n'a répondu à temps. Demandez un nouveau code à l'ordinateur et réessayez.",
+  "pairing.abandoned": "L'appairage a été annulé sur cet appareil. Recommencez quand vous voulez.",
+  "pairing.already_collected": "Un autre onglet a terminé cet appairage. Fermez celui-ci et utilisez l'autre, ou recommencez.",
+  "pairing.cancel": "Annuler"
 }

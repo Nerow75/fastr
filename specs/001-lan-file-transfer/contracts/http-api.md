@@ -50,10 +50,18 @@ See [pairing.md](./pairing.md) for the handshake and key derivation.
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/pair/init` | Client sends its ephemeral public key. Server replies with its own and a handshake identifier. |
-| `POST` | `/api/pair/confirm` | Client proves knowledge of the pairing code. On success the server returns a session credential. Rate limited; a code dies after 5 failures or its expiry, whichever comes first (FR-012, FR-013). |
-| `GET` | `/api/pair/pending` | Host only. Lists devices awaiting the human confirmation of FR-010. |
-| `POST` | `/api/pair/pending/{id}/approve` | Host only. |
-| `POST` | `/api/pair/pending/{id}/reject` | Host only. |
+| `POST` | `/api/pair/confirm` | Client proves knowledge of the pairing code. On success the server returns `202` with a `pending_id`: the device is queued for the human confirmation FR-010 requires, **not** granted access. Rate limited; a code dies after 5 failures or its expiry, whichever comes first (FR-012, FR-013). |
+| `GET` | `/api/pair/status?pending={id}` | Polled by the waiting device. Returns `awaiting_approval`, `rejected`, `expired`, or `approved`. Only `approved` carries the credential, sealed with the handshake key, and only once. Unauthenticated by necessity: the device has no credential yet. |
+| `GET` | `/api/pair/pending` | Host only. Lists devices awaiting confirmation. Carries no key material. |
+| `POST` | `/api/pair/pending/{id}/approve` | Host only. The human saying yes. |
+| `POST` | `/api/pair/pending/{id}/reject` | Host only. The human saying no. |
+
+**"Host only" means loopback.** Reaching these routes requires a connection from
+the machine itself, which is the same trust boundary the operating system
+already enforces and exactly what "a human on the receiving device" means. They
+deliberately do not require a pairing, because on first run the host's own page
+has none. The decision is made on the connection's remote address, never on a
+header a client could set.
 
 ## Devices and pairings
 
@@ -140,9 +148,17 @@ path before this succeeds (FR-032, FR-033).
 ## Events
 
 ```http
-GET /api/events
-Accept: text/event-stream
+POST /api/events/ticket     -> { "ticket": "...", "expires_in": 30 }
+GET  /api/events?ticket=... -> text/event-stream
 ```
+
+`EventSource` cannot set a request header, so the stream cannot carry a bearer
+credential. It is not put in the query string either: a URL lands in browser
+history, in a referrer, and in the access log of anything between the two
+devices, and a long-lived credential belongs in none of those. Instead the
+client spends one authenticated, sealed request on a **single-use ticket that
+expires in 30 seconds**. A ticket recovered from history is worthless by the
+time anyone reads it, and revocation invalidates an unredeemed one.
 
 One stream per client. Event types: `device_appeared`, `device_lost`, `pairing_pending`,
 `pairing_changed`, `transfer_queued`, `transfer_started`, `transfer_progress`,

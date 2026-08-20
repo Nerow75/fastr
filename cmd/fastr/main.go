@@ -125,6 +125,7 @@ func run(args []string) error {
 	events := httpapi.NewEvents()
 	tickets := httpapi.NewTickets()
 	sessions := pairing.NewSessions(db)
+	pendings := pairing.NewPendings()
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Log:        log,
@@ -132,6 +133,7 @@ func run(args []string) error {
 		Sessions:   sessions,
 		Codes:      codes,
 		Handshakes: pairing.NewHandshakes(),
+		Pendings:   pendings,
 		Bundle:     bundle,
 		Events:     events,
 		Tickets:    tickets,
@@ -165,6 +167,7 @@ func run(args []string) error {
 	}
 	fmt.Printf("\nPairing code: %s\n", code.Display())
 	fmt.Println("It is valid for three minutes and can be used once.")
+	fmt.Println("Entering it puts the device in a queue; you approve it here.")
 
 	if !f.background {
 		fmt.Println("\nOpen one of the addresses above to use fastr.")

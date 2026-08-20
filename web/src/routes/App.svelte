@@ -1,10 +1,19 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Session, isDesktop, ApiFailure } from '../lib/session.js';
+  import {
+    Session,
+    isDesktop,
+    ApiFailure,
+    PairingRejected,
+    PairingExpired,
+    PairingAbandoned,
+    PairingAlreadyCollected,
+  } from '../lib/session.js';
   import { EventStream, type ServerEvent } from '../lib/events.js';
   import { installLiveRegions, focusView } from '../lib/a11y.js';
   import { t, negotiate, setLanguage, formatApiError } from '../lib/i18n.js';
   import PairingScreen from '../lib/PairingScreen.svelte';
+  import PendingDevices from '../lib/PendingDevices.svelte';
   import ProtectionNotice from '../lib/ProtectionNotice.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -15,6 +24,9 @@
   let connected = $state(false);
   let error = $state<string | null>(null);
   let main = $state<HTMLElement | null>(null);
+  // Bumped on every pairing_pending event, so the approval panel refetches
+  // without polling hard.
+  let pendingRevision = $state(0);
 
   const desktop = isDesktop();
   let stream: EventStream | null = null;
@@ -38,9 +50,10 @@
   }
 
   function handleEvent(event: ServerEvent): void {
-    // Phase 2 wires the transport. The views that consume these arrive with
-    // their user stories; until then the shell only needs to know the stream
-    // is alive.
+    if (event.type === 'pairing_pending') {
+      pendingRevision += 1;
+      return;
+    }
     if (event.type === 'pairing_changed' && !Session.restore()) {
       // This device's own pairing was revoked from the computer.
       session = null;
@@ -58,8 +71,28 @@
     focusView(main, t('app.name'));
   }
 
+  /**
+   * Renders a failed pairing.
+   *
+   * A refusal, a timeout, or an abandonment are answers a human gave or failed
+   * to give. They are not server errors and must not read like one: "the
+   * request was refused" tells the user what to do next, "something went wrong"
+   * does not.
+   */
   function onPairingError(failure: unknown): void {
-    error = failure instanceof ApiFailure ? formatApiError(failure.body) : t('error.internal');
+    if (failure instanceof PairingRejected) {
+      error = t('pairing.rejected');
+    } else if (failure instanceof PairingExpired) {
+      error = t('pairing.expired');
+    } else if (failure instanceof PairingAbandoned) {
+      error = t('pairing.abandoned');
+    } else if (failure instanceof PairingAlreadyCollected) {
+      error = t('pairing.already_collected');
+    } else if (failure instanceof ApiFailure) {
+      error = formatApiError(failure.body);
+    } else {
+      error = t('error.internal');
+    }
   }
 </script>
 
@@ -78,6 +111,15 @@
 <main id="main" bind:this={main}>
   {#if error}
     <p class="error" role="alert">{error}</p>
+  {/if}
+
+  <!--
+    The host's approval prompt sits above everything, paired or not: on first
+    run the computer's own page has no pairing of its own, and a device waiting
+    to be let in still needs an answer. It renders nothing when nothing waits.
+  -->
+  {#if desktop}
+    <PendingDevices revision={pendingRevision} />
   {/if}
 
   {#if !session}

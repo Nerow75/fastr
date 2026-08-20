@@ -97,17 +97,21 @@ type pairConfirmRequest struct {
 }
 
 type pairConfirmResponse struct {
-	Credential string `json:"credential"`
-	DeviceID   string `json:"device_id"`
-	TrustMode  string `json:"trust_mode"`
-	Protection string `json:"protection"`
+	PendingID string `json:"pending_id"`
+	State     string `json:"state"`
+	ExpiresIn int    `json:"expires_in"`
 }
 
-// handlePairConfirm verifies the code and the proof, then issues a credential.
+// handlePairConfirm verifies the code and the proof, then queues the device for
+// a human to approve on the host.
 //
 // The code is checked first so a wrong guess is counted and rate limited before
 // any cryptography runs. Both checks must pass; neither reveals which failed,
 // beyond what the attempt budget already tells an honest user.
+//
+// Knowing the code proves someone read it off the host's screen, which is a
+// strong signal but not the one FR-010 asks for: a human on the *receiving*
+// device deciding. So a correct code buys a place in the queue, not access.
 func (d Deps) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 	var req pairConfirmRequest
 	if !d.decodePlain(w, r, &req) {
@@ -131,48 +135,167 @@ func (d Deps) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pending, err := d.Pendings.Add(deviceDisplayName(req.DeviceName), req.Platform, sessionKey)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	d.Events.Publish(Event{Type: EventPairingPending})
+	d.Log.Info("pairing request awaiting approval", "name", pending.DeviceName)
+
+	d.writePlainJSON(w, http.StatusAccepted, pairConfirmResponse{
+		PendingID: pending.ID,
+		State:     string(pending.State),
+		ExpiresIn: int(pairing.PendingTTL.Seconds()),
+	})
+}
+
+type pairStatusResponse struct {
+	State string `json:"state"`
+	// Credential is sealed with the key derived during the handshake, so it is
+	// readable only by the device that completed it. Handed over exactly once.
+	Credential string `json:"credential,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	TrustMode  string `json:"trust_mode,omitempty"`
+	Protection string `json:"protection,omitempty"`
+}
+
+// handlePairStatus is polled by the waiting device.
+//
+// Unauthenticated by necessity: the device has no credential yet, which is the
+// whole point of the exchange. The pending identifier is 128 random bits and
+// the credential it eventually yields is sealed, so guessing one buys nothing.
+func (d Deps) handlePairStatus(w http.ResponseWriter, r *http.Request) {
+	pending, err := d.Pendings.Get(r.URL.Query().Get("pending"))
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeNotFound, err))
+		return
+	}
+
+	if pending.State != pairing.PendingApproved {
+		d.writePlainJSON(w, http.StatusOK, pairStatusResponse{State: string(pending.State)})
+		return
+	}
+
+	credential, ok := d.Pendings.TakeCredential(pending.ID)
+	if !ok {
+		// Already collected. The credential is handed over once, so a second
+		// poll gets the state and nothing else.
+		d.writePlainJSON(w, http.StatusOK, pairStatusResponse{State: string(pending.State)})
+		return
+	}
+
+	p, err := d.Store.Pairing(pending.DeviceID())
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	// Sealed with the handshake key, so the credential is unreadable to anyone
+	// watching this plain HTTP exchange.
+	sealed, err := sealForPending(pending.SessionKey(), r.URL.Path, credential)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+	d.Pendings.Collected(pending.ID)
+
+	d.writePlainJSON(w, http.StatusOK, pairStatusResponse{
+		State:      string(pending.State),
+		Credential: sealed,
+		DeviceID:   pending.DeviceID(),
+		TrustMode:  string(p.TrustMode),
+		Protection: string(p.ProtectionMode),
+	})
+}
+
+// handlePendingList shows the host what is waiting.
+func (d Deps) handlePendingList(w http.ResponseWriter, _ *http.Request) {
+	d.writePlainJSON(w, http.StatusOK, map[string]any{"pending": d.Pendings.List()})
+}
+
+// handlePendingApprove is the human saying yes. FR-010.
+func (d Deps) handlePendingApprove(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	existing, err := d.Pendings.Get(id)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeNotFound, err))
+		return
+	}
+
+	deviceID := store.NewID().String()
+	if err := d.Store.PutDevice(store.Device{
+		ID:       deviceID,
+		Name:     existing.DeviceName,
+		Platform: existing.Platform,
+		Kind:     store.KindPhone,
+		LastSeen: time.Now(),
+	}); err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
+		return
+	}
+
+	approved, err := d.Pendings.Approve(id, deviceID)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
+		return
+	}
+
 	credential, hash, err := pairing.NewCredential()
 	if err != nil {
 		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
 		return
 	}
 
-	deviceID := store.NewID().String()
-	device := store.Device{
-		ID:       deviceID,
-		Name:     deviceDisplayName(req.DeviceName),
-		Platform: req.Platform,
-		Kind:     store.KindPhone,
-		LastSeen: time.Now(),
-	}
-	if err := d.Store.PutDevice(device); err != nil {
-		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
-		return
-	}
-
-	// A device paired here is one the user is standing in front of, having just
-	// read a code off this screen and approved it. FR-016b makes that the
+	// A device approved here is one the user is standing in front of, having
+	// just read a code off this screen and said yes. FR-016b makes that the
 	// automatic-acceptance default; the user can change it afterwards.
-	p, err := d.Store.CreatePairing(deviceID, hash, sessionKey, store.TrustAuto)
-	if err != nil {
+	if _, err := d.Store.CreatePairing(deviceID, hash, approved.SessionKey(), store.TrustAuto); err != nil {
 		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
 		return
 	}
-	if err := d.Sessions.Register(deviceID, sessionKey); err != nil {
+	if err := d.Sessions.Register(deviceID, approved.SessionKey()); err != nil {
 		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
 		return
 	}
+	d.Pendings.HoldCredential(id, credential)
 
 	d.Events.Publish(Event{Type: EventPairingChanged, DeviceID: deviceID})
-	d.Log.Info("device paired", "device_id", deviceID, "name", device.Name)
+	d.Log.Info("device paired", "device_id", deviceID, "name", existing.DeviceName)
 
-	// The credential is returned once and never again: only its hash is stored.
-	d.writePlainJSON(w, http.StatusOK, pairConfirmResponse{
-		Credential: credential,
-		DeviceID:   deviceID,
-		TrustMode:  string(p.TrustMode),
-		Protection: string(p.ProtectionMode),
-	})
+	d.writePlainJSON(w, http.StatusOK, map[string]any{"device_id": deviceID})
+}
+
+// handlePendingReject is the human saying no.
+func (d Deps) handlePendingReject(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if _, err := d.Pendings.Reject(id); err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeNotFound, err))
+		return
+	}
+	d.Events.Publish(Event{Type: EventPairingPending})
+
+	d.writePlainJSON(w, http.StatusOK, map[string]any{"rejected": id})
+}
+
+// sealForPending encrypts the credential with the handshake key.
+//
+// A fresh envelope is used rather than the session's, because the device has
+// not established one yet: this exchange is what gives it the credential the
+// session will authenticate with.
+func sealForPending(sessionKey []byte, path, credential string) (string, error) {
+	env, err := pairing.NewEnvelope(sessionKey, pairing.ServerToClient)
+	if err != nil {
+		return "", err
+	}
+	sealed, err := env.Seal(http.MethodGet, path, pairing.ProtocolVersion, []byte(credential))
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(sealed), nil
 }
 
 type deviceView struct {

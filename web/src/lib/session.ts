@@ -65,12 +65,24 @@ export class Session {
   }
 
   /**
-   * Runs the pairing handshake and stores the result.
+   * Runs the pairing handshake, then waits for a human on the computer.
+   *
+   * Knowing the code is not access: FR-010 wants someone on the receiving
+   * device to say yes. So this submits the proof, then polls until it is
+   * answered.
    *
    * The ephemeral private key never leaves this function, and the credential
    * arrives once: the server keeps only its hash.
+   *
+   * `onWaiting` fires when the request has been queued, so the interface can
+   * tell the user to go and approve it rather than appearing to hang.
    */
-  static async pair(code: string, deviceName: string): Promise<Session> {
+  static async pair(
+    code: string,
+    deviceName: string,
+    onWaiting?: () => void,
+    signal?: AbortSignal,
+  ): Promise<Session> {
     const { privateKey, publicKey } = generateKeypair();
 
     const init = await postPlain<{ handshake_id: string; server_pub: string; salt: string }>(
@@ -87,20 +99,29 @@ export class Session {
       init.handshake_id,
     );
 
-    const confirm = await postPlain<{ credential: string; device_id: string }>(
-      '/api/pair/confirm',
-      {
-        handshake_id: init.handshake_id,
-        code,
-        proof: toBase64(proof),
-        device_name: deviceName,
-        platform: detectPlatform(),
-      },
+    const confirm = await postPlain<{ pending_id: string; state: string }>('/api/pair/confirm', {
+      handshake_id: init.handshake_id,
+      code,
+      proof: toBase64(proof),
+      device_name: deviceName,
+      platform: detectPlatform(),
+    });
+
+    onWaiting?.();
+
+    const approved = await waitForApproval(confirm.pending_id, signal);
+
+    // A throwaway envelope, not the session's. Opening with the session
+    // envelope would advance its receive counter, and the first real response
+    // would then look like a replay.
+    const opener = new Envelope(key, ClientToServer);
+    const credential = new TextDecoder().decode(
+      opener.open('GET', PAIR_STATUS_PATH, fromBase64(approved.credential)),
     );
 
     const stored: StoredSession = {
-      credential: confirm.credential,
-      deviceId: confirm.device_id,
+      credential,
+      deviceId: approved.device_id,
       key: toBase64(key),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
@@ -151,12 +172,6 @@ export class Session {
       throw err;
     }
   }
-
-  /** The credential, for the event stream, which cannot set a header on
-   *  EventSource and carries it in the query string instead. */
-  get bearer(): string {
-    return this.credential;
-  }
 }
 
 /** Sends an unsealed request, for the pairing endpoints, which by definition
@@ -189,4 +204,104 @@ function detectPlatform(): string {
  *  else is a phone that scanned the code. */
 export function isDesktop(): boolean {
   return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
+}
+
+const PAIR_STATUS_PATH = '/api/pair/status';
+
+/** How often the waiting device asks whether a human has answered. */
+const APPROVAL_POLL_MS = 1000;
+
+interface ApprovedPairing {
+  credential: string;
+  device_id: string;
+}
+
+/**
+ * Polls until the request is answered.
+ *
+ * Polling rather than a held connection: the answer may take a minute while
+ * someone walks to their computer, and a phone that locks its screen will drop
+ * a held request anyway. A poll that misses simply happens again.
+ */
+async function waitForApproval(pendingId: string, signal?: AbortSignal): Promise<ApprovedPairing> {
+  for (;;) {
+    if (signal?.aborted) throw new PairingAbandoned();
+
+    const status = await postlessGet<{
+      state: string;
+      credential?: string;
+      device_id?: string;
+    }>(`${PAIR_STATUS_PATH}?pending=${encodeURIComponent(pendingId)}`);
+
+    switch (status.state) {
+      case 'approved':
+        if (!status.credential || !status.device_id) {
+          // Approved, but this poll did not carry the credential: another tab
+          // collected it. Recovering is not possible, and saying so is better
+          // than looping forever.
+          throw new PairingAlreadyCollected();
+        }
+        return { credential: status.credential, device_id: status.device_id };
+      case 'rejected':
+        throw new PairingRejected();
+      case 'expired':
+        throw new PairingExpired();
+      default:
+        await sleep(APPROVAL_POLL_MS, signal);
+    }
+  }
+}
+
+export class PairingRejected extends Error {
+  readonly detailKey = 'pairing.rejected';
+  constructor() {
+    super('the request was refused on the computer');
+    this.name = 'PairingRejected';
+  }
+}
+
+export class PairingExpired extends Error {
+  readonly detailKey = 'pairing.expired';
+  constructor() {
+    super('nobody answered in time');
+    this.name = 'PairingExpired';
+  }
+}
+
+export class PairingAbandoned extends Error {
+  readonly detailKey = 'pairing.abandoned';
+  constructor() {
+    super('the pairing was abandoned');
+    this.name = 'PairingAbandoned';
+  }
+}
+
+export class PairingAlreadyCollected extends Error {
+  readonly detailKey = 'pairing.already_collected';
+  constructor() {
+    super('the credential was already collected');
+    this.name = 'PairingAlreadyCollected';
+  }
+}
+
+async function postlessGet<T>(path: string): Promise<T> {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new ApiFailure(response.status, (await response.json()) as ApiError);
+  }
+  return (await response.json()) as T;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(timer);
+        reject(new PairingAbandoned());
+      },
+      { once: true },
+    );
+  });
 }
