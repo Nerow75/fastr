@@ -43,6 +43,7 @@ func NewRouter(d Deps) http.Handler {
 	// protocol version, and an identifier, all of which the mDNS record already
 	// broadcasts to anyone on the network.
 	mux.HandleFunc("GET /connect", d.handleConnect)
+	mux.HandleFunc("GET /qr", d.handleQR)
 
 	// Pairing. These cannot require a session, because their purpose is to
 	// create one. They are protected by the code and the handshake instead.

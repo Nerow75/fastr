@@ -296,8 +296,12 @@ rather than a static check.
 
 ## Dependency budget
 
-Nine direct dependencies. Each is justified per the constitution's rule that added complexity must
-be argued for.
+Eleven direct dependencies, of which three are build-time only and never reach the user. Each is
+justified per the constitution's rule that added complexity must be argued for.
+
+The budget grew from the nine estimated during planning. `golang.org/x/sys` was an oversight: the
+platform layer cannot do its job without syscalls. `rsc.io/qr` is a deliberate addition, argued
+in its row below.
 
 | Dependency | Why it is not the standard library |
 |---|---|
@@ -305,6 +309,8 @@ be argued for.
 | `fyne.io/systray` | Tray integration is per-platform system API work. |
 | `go.etcd.io/bbolt` | Transactional durable storage without cgo. |
 | `golang.org/x/crypto` | X25519, HKDF, ChaCha20-Poly1305, BLAKE2b. Effectively an extension of the standard library. |
+| `golang.org/x/sys` | Platform syscalls: free space, file locking, known folders, the registry. |
+| `rsc.io/qr` | QR is a specified format with masking, error correction, and version selection. A subtly wrong implementation produces a code that scans on the phone you tested with and fails on the next one. |
 | Svelte, Vite, TypeScript | Build-time only, never shipped to the user as a runtime. |
 | `@noble/curves`, `@noble/ciphers` | The browser's native cryptography is unavailable in the context the mobile page runs in. |
 

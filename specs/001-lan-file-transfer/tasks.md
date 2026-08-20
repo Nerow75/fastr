@@ -121,7 +121,7 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 ### Implementation for User Story 1
 
-- [ ] T050 [P] [US1] Implement connection info and QR code generation in `internal/httpapi/connect.go`
+- [X] T050 [P] [US1] Implement connection info and QR code generation in `internal/httpapi/connect.go`
 - [X] T051 [P] [US1] Build the pairing screen with code entry in `web/src/lib/PairingScreen.svelte`
 - [X] T052 [US1] Build the desktop approval screen for pending devices in `web/src/lib/PendingDevices.svelte`, per FR-010
 - [X] T053 [US1] Implement free space checking before a transfer starts in `internal/transfer/space.go`, per FR-028
