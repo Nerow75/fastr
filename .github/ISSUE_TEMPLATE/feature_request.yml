@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a capability or a change in direction
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The project is early, so proposals genuinely shape it. Please read the constitution
+        first: `.specify/memory/constitution.md`. A proposal that breaks a principle will not
+        be accepted, no matter how useful it is.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: Describe the problem before the solution. What are you unable to do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+
+  - type: checkboxes
+    id: constitution
+    attributes:
+      label: Constitution check
+      description: Confirm the proposal holds under the project principles.
+      options:
+        - label: It requires no internet access at runtime
+          required: true
+        - label: It requires nothing to be installed on the phone
+          required: true
+        - label: It works identically on Linux and Windows
+          required: true
+        - label: It introduces no file size cap and no whole-file buffering
+          required: true

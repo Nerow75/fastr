@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Nerow75/fastr/security/advisories/new
+    about: Do not open a public issue for a vulnerability. Report it privately here.
+  - name: Question or idea
+    url: https://github.com/Nerow75/fastr/discussions
+    about: Open-ended questions and stack proposals belong in Discussions.

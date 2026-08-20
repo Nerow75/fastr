@@ -1,0 +1,70 @@
+name: Bug report
+description: Something does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Never paste a pairing code, a certificate, or a token here.
+        If you found a security vulnerability, do not open an issue: see SECURITY.md.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the desktop app on ...
+        2. Scan the QR code with ...
+        3. Send a file of ... MB
+        4. See ...
+    validations:
+      required: true
+
+  - type: input
+    id: desktop-os
+    attributes:
+      label: Desktop OS and version
+      placeholder: "Fedora 43, Windows 11 23H2, ..."
+    validations:
+      required: true
+
+  - type: input
+    id: mobile
+    attributes:
+      label: Phone OS and browser
+      placeholder: "iOS 19, Safari / Android 16, Chrome 141"
+    validations:
+      required: true
+
+  - type: input
+    id: file-size
+    attributes:
+      label: File size involved
+      placeholder: "2.4 GB"
+
+  - type: dropdown
+    id: transfer-started
+    attributes:
+      label: Did the transfer start at all?
+      options:
+        - "Not applicable"
+        - "It never started"
+        - "It started and failed partway"
+        - "It completed but the file is wrong"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact anything that looks like a key, a token, or a personal path.
+      render: shell

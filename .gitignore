@@ -1,0 +1,52 @@
+# --- Secrets and local runtime state -----------------------------------------
+# Principle V: no key, certificate, or pairing token ever reaches the repository.
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+secrets/
+certs/
+
+# --- Build output -------------------------------------------------------------
+/target/
+/dist/
+/build/
+/out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# --- Dependencies ---------------------------------------------------------------
+node_modules/
+vendor/
+__pycache__/
+.venv/
+
+# --- Test and coverage ----------------------------------------------------------
+coverage/
+*.lcov
+.nyc_output/
+
+# --- Large fixtures used in transfer tests --------------------------------------
+# Big files are generated locally, never committed.
+testdata/large/
+
+# --- Editors and OS -------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Agent tooling --------------------------------------------------------------
+# .claude/skills is versioned on purpose so contributors get the Spec Kit workflow.
+.claude/settings.local.json
+.claude/.credentials.json
+.claude/history/
