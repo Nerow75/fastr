@@ -1,6 +1,37 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 1.0.0 -> 1.1.0
+Bump type: MINOR (a technical constraint is materially redefined; no principle added or removed)
+
+Amendment 1.1.0 (2026-08-20)
+----------------------------
+Motivation: specs/001-lan-file-transfer (FR-044 to FR-047) forbids any browser security warning
+or certificate prompt when connecting a new phone, and moves encryption to the application
+layer. The previous Transport constraint prescribed a mechanism that produces exactly that
+warning, so the spec could not pass a compliance check.
+
+Modified:
+  - Technical Constraints > "Transport" -> "Transport encryption". Replaced a mechanism-based
+    rule ("HTTP over TLS with a locally provisioned certificate") with an outcome-based one:
+    encryption is mandatory, the layer is a planning decision, and establishing it must never
+    require accepting a browser warning or installing a certificate.
+
+Added:
+  - Technical Constraints > "Non-secure browser context". Records that the mobile page runs in a
+    non-secure browser context, so capabilities browsers reserve for secure contexts must have
+    application-supplied equivalents rather than degrading an essential flow.
+
+Unchanged:
+  - Principle V (Security On Shared Networks). Encryption in transit stays mandatory and a
+    cleartext fallback stays forbidden by default.
+  - All other principles, sections, and governance rules.
+
+Impact on existing artifacts: unblocks specs/001-lan-file-transfer for planning. No other spec
+exists. No migration needed, as no code has been written.
+
+Previous history
+----------------
 Version change: TEMPLATE (unratified) -> 1.0.0
 Bump type: initial ratification (skeleton replaced with a normative document)
 
@@ -139,8 +170,14 @@ behavior can be audited by anyone.
 - **Runtime dependencies**: no reliance on any external network service at runtime,
   including for time, fonts, and icons.
 - **Discovery**: mDNS / DNS-SD on the local network, with manual address entry as fallback.
-- **Transport**: HTTP over TLS with a locally provisioned certificate, designed for a context
-  where no certificate authority is available.
+- **Transport encryption**: all transfer content and all pairing exchanges MUST be encrypted.
+  Which layer provides that encryption is a planning decision, not a constitutional one.
+  Establishing it MUST NEVER require the user to accept a browser security warning or install a
+  certificate. Onboarding friction is the constraint; the mechanism is free.
+- **Non-secure browser context**: serving the mobile page over a plain local address means
+  browsers treat it as a non-secure context. Capabilities that browsers reserve for secure
+  contexts are therefore unavailable, and the application MUST supply its own equivalents rather
+  than degrade an essential flow.
 - **Local state**: configuration and pairing state stored in each platform's standard
   locations, never inside the install directory.
 - **Receive folder**: configurable, defaulting outside system folders, and never widened
@@ -189,4 +226,4 @@ document before any code that depends on it.
 be listed and explicitly justified, otherwise the plan is rejected. A compliance review runs
 at every merge and every release.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20
+**Version**: 1.1.0 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20
