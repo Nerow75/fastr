@@ -1,14 +1,18 @@
 import js from '@eslint/js';
 import ts from 'typescript-eslint';
 import svelte from 'eslint-plugin-svelte';
+import globals from 'globals';
 
 export default [
-  { ignores: ['dist/', 'node_modules/', '.svelte-kit/', 'coverage/'] },
+  { ignores: ['../internal/assets/dist/', 'node_modules/', '.svelte-kit/', 'coverage/'] },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs['flat/recommended'],
   {
     languageOptions: {
+      // The application runs in a browser. The service worker used by trusted
+      // mode runs in a worker, so both global sets are declared.
+      globals: { ...globals.browser, ...globals.serviceworker },
       parserOptions: { extraFileExtensions: ['.svelte'] },
     },
     rules: {

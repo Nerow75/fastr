@@ -7,16 +7,11 @@ import (
 
 	"github.com/Nerow75/fastr/internal/app"
 	"github.com/Nerow75/fastr/internal/i18n"
-	"github.com/Nerow75/fastr/web"
 )
 
 func loadBundle(t *testing.T) *i18n.Bundle {
 	t.Helper()
-	fsys, err := web.Locales()
-	if err != nil {
-		t.Fatalf("locales: %v", err)
-	}
-	b, err := i18n.Load(fsys)
+	b, err := i18n.Load()
 	if err != nil {
 		t.Fatalf("load catalogues: %v", err)
 	}

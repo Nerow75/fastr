@@ -15,8 +15,11 @@ help: ## List targets
 # --- build --------------------------------------------------------------------
 
 .PHONY: web
-web: ## Build the web application into web/dist
+web: ## Build the web application into internal/assets/dist
 	cd $(WEB) && $(NPM) ci --no-audit --no-fund && $(NPM) run build
+	@# Vite empties the output directory, which would remove the placeholder
+	@# that lets `go build` succeed on a fresh clone. Put it back.
+	@touch internal/assets/dist/.gitkeep
 
 .PHONY: build
 build: web ## Build the binary for the host platform
@@ -98,4 +101,6 @@ netcut: ## Block the service port for a while, to exercise resume
 
 .PHONY: clean
 clean: ## Remove build output
-	rm -rf bin $(WEB)/dist
+	rm -rf bin
+	rm -rf internal/assets/dist
+	mkdir -p internal/assets/dist && touch internal/assets/dist/.gitkeep

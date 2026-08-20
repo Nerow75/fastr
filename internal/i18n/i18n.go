@@ -11,6 +11,7 @@
 package i18n
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -19,6 +20,14 @@ import (
 	"strings"
 	"sync"
 )
+
+// The catalogues are authored here and imported by the web application from
+// this directory, so there is exactly one copy of each translation. A
+// translator edits one file and both the native surfaces and the browser
+// follow. FR-039a.
+//
+//go:embed locales/*.json
+var catalogues embed.FS
 
 // DefaultLanguage is the fallback. A missing translation renders in English
 // rather than showing a blank or a raw key, per FR-039d.
@@ -37,9 +46,12 @@ type Bundle struct {
 	fallback *Catalogue
 }
 
-// Load reads every catalogue from fsys. The caller passes web.Locales(), so
-// the Go side and the browser side read the same files.
-func Load(fsys fs.FS) (*Bundle, error) {
+// Load reads every embedded catalogue.
+func Load() (*Bundle, error) {
+	fsys, err := fs.Sub(catalogues, "locales")
+	if err != nil {
+		return nil, err
+	}
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("read locales: %w", err)

@@ -17,7 +17,8 @@ certs/
 /dist/
 /build/
 /out/
-web/dist/
+internal/assets/dist/*
+!internal/assets/dist/.gitkeep
 *.exe
 *.dll
 *.so

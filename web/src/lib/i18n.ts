@@ -10,8 +10,8 @@
  * sentence (FR-039d).
  */
 
-import en from '../locales/en.json';
-import fr from '../locales/fr.json';
+import en from '../../../internal/i18n/locales/en.json';
+import fr from '../../../internal/i18n/locales/fr.json';
 
 export type Lang = 'en' | 'fr';
 
