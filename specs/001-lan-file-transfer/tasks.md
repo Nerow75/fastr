@@ -93,10 +93,11 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 ### Event stream and application shell
 
 - [X] T038 Implement the event bus and the SSE endpoint with 4-per-second progress throttling in `internal/httpapi/events.go`
-- [ ] T039 [P] Implement the client event stream with reconnection in `web/src/lib/events.ts`
-- [ ] T040 Implement the application shell, routing between desktop and mobile views in `web/src/routes/App.svelte`
-- [ ] T041 [P] Establish the accessible base layer, focus ring, landmarks, and live region in `web/src/lib/a11y.ts` and `web/src/app.css`
-- [ ] T042 Implement tray icon, background lifecycle, and single-instance guard in `internal/platform/tray.go` and `cmd/fastr/main.go`, per FR-048 and FR-050
+- [X] T039 [P] Implement the client event stream with reconnection in `web/src/lib/events.ts`
+- [X] T040 Implement the application shell, routing between desktop and mobile views in `web/src/routes/App.svelte`
+- [X] T041 [P] Establish the accessible base layer, focus ring, landmarks, and live region in `web/src/lib/a11y.ts` and `web/src/app.css`
+- [X] T042a Implement the background lifecycle and single-instance guard in `internal/platform/tray.go`, `internal/platform/lock_linux.go`, `internal/platform/lock_windows.go`, and `cmd/fastr/main.go`, per FR-048 and FR-050
+- [ ] T042b Attach an actual system tray icon and menu, wiring `platform.TrayMenu`. Deliberately not done yet: research item 3 (now T139) requires confirming the Linux tray dependency and its graceful degradation, and neither can be verified without a desktop session. The lifecycle it drives is already in place, so this is the icon and menu only.
 - [X] T043 [P] Implement the autostart toggle, off by default, in `internal/platform/platform_linux.go` and `internal/platform/platform_windows.go`, per FR-049. Kept in the platform files rather than separate ones: it is three functions per OS and shares the config-directory logic already there.
 - [X] T044 [P] Write the network boundary test asserting zero sockets leave the local network in `test/integration/network_boundary_test.go`, per Principle I
 

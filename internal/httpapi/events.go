@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/Nerow75/fastr/internal/app"
 )
 
 // The event stream, per contracts/http-api.md.
@@ -173,7 +175,24 @@ func (e *Events) Subscribers() int {
 const heartbeat = 25 * time.Second
 
 // handleEvents streams events to one client.
-func (d Deps) handleEvents(_ *Session, w http.ResponseWriter, r *http.Request) {
+//
+// Authentication is by single-use ticket rather than a bearer header, because
+// EventSource cannot set one. See tickets.go for why the session credential
+// does not go in the URL instead.
+func (d Deps) handleEvents(w http.ResponseWriter, r *http.Request) {
+	deviceID, err := d.Tickets.Redeem(r.URL.Query().Get("ticket"))
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeUnauthorized, err))
+		return
+	}
+	// The pairing may have been revoked between minting the ticket and
+	// redeeming it, which is thirty seconds during which revocation must still
+	// take effect immediately.
+	if _, err := d.Store.ActivePairing(deviceID); err != nil {
+		d.writeError(w, r, authError(err))
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		d.writeError(w, r, fmt.Errorf("streaming unsupported"))

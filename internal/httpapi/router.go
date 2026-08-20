@@ -24,6 +24,7 @@ type Deps struct {
 	Handshakes *pairing.Handshakes
 	Bundle     fs.FS
 	Events     *Events
+	Tickets    *Tickets
 	// DeviceName and DeviceID identify this instance to peers.
 	DeviceName string
 	DeviceID   string
@@ -51,7 +52,10 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/pairings", d.authenticated(d.handlePairings))
 	mux.Handle("DELETE /api/pairings/{id}", d.authenticated(d.handleRevoke))
 	mux.Handle("PATCH /api/pairings/{id}", d.authenticated(d.handlePairingUpdate))
-	mux.Handle("GET /api/events", d.authenticatedRaw(d.handleEvents))
+	mux.Handle("POST /api/events/ticket", d.authenticated(d.handleEventTicket))
+	// The stream authenticates with a single-use ticket rather than a bearer
+	// header, because EventSource cannot set one. See tickets.go.
+	mux.HandleFunc("GET /api/events", d.handleEvents)
 
 	// The web application. Served last so it catches everything unmatched.
 	mux.Handle("/", assetHandler(d.Bundle))
@@ -81,12 +85,6 @@ func (d Deps) authenticated(h func(*Session, http.ResponseWriter, *http.Request)
 		}
 		h(s, w, r)
 	})
-}
-
-// authenticatedRaw wraps a handler that writes its own body, such as the event
-// stream, which cannot be a single sealed payload.
-func (d Deps) authenticatedRaw(h func(*Session, http.ResponseWriter, *http.Request)) http.Handler {
-	return d.authenticated(h)
 }
 
 // Session pairs the resolved identity with the request's sealed body.

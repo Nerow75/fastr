@@ -1,0 +1,192 @@
+/**
+ * The API client: credential storage, the sealed envelope, and the pairing
+ * flow.
+ *
+ * A device's credential lives in the browser's site data. Clearing that data,
+ * or connecting from a private window, loses the pairing and requires pairing
+ * again. That is stated as an assumption in the spec rather than worked around,
+ * because the alternatives all involve storing a credential somewhere the user
+ * did not ask for.
+ */
+
+import { Envelope, ClientToServer, toBase64, fromBase64, ReplayError } from '../crypto/envelope.js';
+import { derive, generateKeypair } from '../crypto/handshake.js';
+import type { ApiError } from './i18n.js';
+
+const STORAGE_KEY = 'fastr.session.v1';
+
+interface StoredSession {
+  credential: string;
+  deviceId: string;
+  /** The session key, base64. It is a shared secret with this computer and
+   *  nothing else, and it never leaves this origin. */
+  key: string;
+}
+
+export class ApiFailure extends Error {
+  readonly body: ApiError;
+  readonly status: number;
+
+  constructor(status: number, body: ApiError) {
+    super(body.error);
+    this.name = 'ApiFailure';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+export class Session {
+  private readonly credential: string;
+  readonly deviceId: string;
+  private readonly envelope: Envelope;
+
+  private constructor(stored: StoredSession) {
+    this.credential = stored.credential;
+    this.deviceId = stored.deviceId;
+    this.envelope = new Envelope(fromBase64(stored.key), ClientToServer);
+  }
+
+  /** Restores a session from site data, or null when this device is unpaired. */
+  static restore(): Session | null {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      return new Session(JSON.parse(raw) as StoredSession);
+    } catch {
+      // Corrupt or from an older layout. Pairing again is the honest recovery.
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+  }
+
+  /** Forgets the pairing on this device. */
+  static clear(): void {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
+  /**
+   * Runs the pairing handshake and stores the result.
+   *
+   * The ephemeral private key never leaves this function, and the credential
+   * arrives once: the server keeps only its hash.
+   */
+  static async pair(code: string, deviceName: string): Promise<Session> {
+    const { privateKey, publicKey } = generateKeypair();
+
+    const init = await postPlain<{ handshake_id: string; server_pub: string; salt: string }>(
+      '/api/pair/init',
+      { client_pub: toBase64(publicKey), device_name: deviceName, platform: detectPlatform() },
+    );
+
+    const { key, proof } = derive(
+      privateKey,
+      fromBase64(init.server_pub),
+      publicKey,
+      fromBase64(init.salt),
+      code,
+      init.handshake_id,
+    );
+
+    const confirm = await postPlain<{ credential: string; device_id: string }>(
+      '/api/pair/confirm',
+      {
+        handshake_id: init.handshake_id,
+        code,
+        proof: toBase64(proof),
+        device_name: deviceName,
+        platform: detectPlatform(),
+      },
+    );
+
+    const stored: StoredSession = {
+      credential: confirm.credential,
+      deviceId: confirm.device_id,
+      key: toBase64(key),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    return new Session(stored);
+  }
+
+  /** Sends a sealed request and returns the decrypted payload. */
+  async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const init: RequestInit = {
+      method,
+      headers: { Authorization: `Bearer ${this.credential}` },
+    };
+
+    if (body !== undefined) {
+      const plain = new TextEncoder().encode(JSON.stringify(body));
+      init.body = toBase64(this.envelope.seal(method, path, plain));
+    }
+
+    const response = await fetch(path, init);
+
+    if (!response.ok) {
+      const failure = (await response.json()) as ApiError;
+      // A revoked or expired pairing is terminal for this credential. Dropping
+      // it here means the interface offers pairing again rather than looping
+      // on requests that can never succeed.
+      if (failure.error === 'pairing_revoked' || failure.error === 'pairing_expired') {
+        Session.clear();
+      }
+      throw new ApiFailure(response.status, failure);
+    }
+
+    const raw = await response.text();
+    if (raw.length === 0) return undefined as T;
+
+    try {
+      const plain = this.envelope.open(method, path, fromBase64(raw));
+      return JSON.parse(new TextDecoder().decode(plain)) as T;
+    } catch (err) {
+      if (err instanceof ReplayError) {
+        // Two tabs sharing one credential each keep their own counter, so one
+        // of them will see the other's replies as out of order. Reloading
+        // starts a clean session rather than silently dropping messages.
+        throw new ApiFailure(400, {
+          error: 'replay_detected',
+          detail_key: 'error.replay_detected',
+        });
+      }
+      throw err;
+    }
+  }
+
+  /** The credential, for the event stream, which cannot set a header on
+   *  EventSource and carries it in the query string instead. */
+  get bearer(): string {
+    return this.credential;
+  }
+}
+
+/** Sends an unsealed request, for the pairing endpoints, which by definition
+ *  have no session yet. */
+async function postPlain<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new ApiFailure(response.status, (await response.json()) as ApiError);
+  }
+  return (await response.json()) as T;
+}
+
+/** Reports the platform for display only. It is never an input to an access
+ *  decision, on either side. */
+function detectPlatform(): string {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Windows/i.test(ua)) return 'windows';
+  if (/Linux/i.test(ua)) return 'linux';
+  return 'other';
+}
+
+/** Whether this page is the desktop view. Loopback is the desktop; anything
+ *  else is a phone that scanned the code. */
+export function isDesktop(): boolean {
+  return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(window.location.hostname);
+}

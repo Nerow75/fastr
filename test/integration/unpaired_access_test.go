@@ -22,7 +22,7 @@ var protectedRoutes = []struct {
 	{"GET", "/api/pairings"},
 	{"DELETE", "/api/pairings/some-device"},
 	{"PATCH", "/api/pairings/some-device"},
-	{"GET", "/api/events"},
+	{"POST", "/api/events/ticket"},
 }
 
 func TestUnpairedDeviceIsRefusedEverywhere(t *testing.T) {

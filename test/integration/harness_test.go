@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/Nerow75/fastr/internal/app"
 	"github.com/Nerow75/fastr/internal/httpapi"
@@ -29,6 +31,7 @@ type harness struct {
 	codes    *pairing.Codes
 	sessions *pairing.Sessions
 	events   *httpapi.Events
+	tickets  *httpapi.Tickets
 	logs     *bytes.Buffer
 	scrubber *app.Scrubber
 }
@@ -50,6 +53,7 @@ func newHarness(t *testing.T) *harness {
 
 	sessions := pairing.NewSessions(st)
 	events := httpapi.NewEvents()
+	tickets := httpapi.NewTickets()
 
 	bundle := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fastr</title>")},
@@ -63,6 +67,7 @@ func newHarness(t *testing.T) *harness {
 		Handshakes: pairing.NewHandshakes(),
 		Bundle:     fs.FS(bundle),
 		Events:     events,
+		Tickets:    tickets,
 		DeviceName: "Test Computer",
 		DeviceID:   "computer-1",
 		Trusted:    func(*http.Request) bool { return false },
@@ -73,7 +78,8 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		t: t, server: srv, store: st, codes: codes,
-		sessions: sessions, events: events, logs: logs, scrubber: scrubber,
+		sessions: sessions, events: events, tickets: tickets,
+		logs: logs, scrubber: scrubber,
 	}
 }
 
@@ -235,4 +241,10 @@ func errorBody(t *testing.T, resp *http.Response) map[string]any {
 func discardLogger() *slog.Logger {
 	logger, _ := app.NewLogger(io.Discard, slog.LevelError)
 	return logger
+}
+
+// contextWithTimeout bounds a request that would otherwise stream forever.
+func contextWithTimeout(t *testing.T, d time.Duration) (context.Context, context.CancelFunc) {
+	t.Helper()
+	return context.WithTimeout(t.Context(), d)
 }
