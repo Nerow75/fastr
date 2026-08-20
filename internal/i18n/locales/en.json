@@ -103,5 +103,14 @@
   "pairing.expired": "Nobody answered in time. Get a new code from the computer and try again.",
   "pairing.abandoned": "The pairing was cancelled on this device. Start again when you are ready.",
   "pairing.already_collected": "Another tab completed this pairing. Close this one and use that tab, or start again.",
-  "pairing.cancel": "Cancel"
+  "pairing.cancel": "Cancel",
+  "transfer.no_devices": "No paired devices yet. Connect a phone first.",
+  "transfer.to": "To",
+  "transfer.selected": "{count} files, {size}",
+  "transfer.clear": "Clear selection",
+  "transfer.keep_tab_open": "Keep this tab open while the transfer runs. It holds the files.",
+  "transfer.incoming": "Incoming",
+  "transfer.save": "Save",
+  "transfer.waiting_for_sender": "Waiting for the sending device.",
+  "transfer.none": "Nothing yet. Send something from another device."
 }

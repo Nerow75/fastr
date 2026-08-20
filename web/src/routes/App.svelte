@@ -12,13 +12,23 @@
   import { EventStream, type ServerEvent } from '../lib/events.js';
   import { installLiveRegions, focusView } from '../lib/a11y.js';
   import { t, negotiate, setLanguage, formatApiError } from '../lib/i18n.js';
+  import { Sender, type Transfer } from '../lib/transfers.js';
   import PairingScreen from '../lib/PairingScreen.svelte';
   import PendingDevices from '../lib/PendingDevices.svelte';
   import ProtectionNotice from '../lib/ProtectionNotice.svelte';
+  import SendPanel from '../lib/SendPanel.svelte';
+  import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
   // device is paired, and whether it is the desktop or a phone. Everything else
   // is a view.
+
+  interface Device {
+    id: string;
+    name: string;
+    kind: string;
+    paired: boolean;
+  }
 
   let session = $state<Session | null>(null);
   let connected = $state(false);
@@ -28,6 +38,10 @@
   // without polling hard.
   let pendingRevision = $state(0);
 
+  let devices = $state<Device[]>([]);
+  let transfers = $state<Transfer[]>([]);
+  let sender = $state<Sender | null>(null);
+
   const desktop = isDesktop();
   let stream: EventStream | null = null;
 
@@ -36,7 +50,11 @@
     setLanguage(negotiate(localStorage.getItem('fastr.language')));
 
     session = Session.restore();
-    if (session) openStream(session);
+    if (session) {
+      sender = new Sender(session);
+      openStream(session);
+      void loadDevices(session);
+    }
   });
 
   onDestroy(() => stream?.stop());
@@ -44,9 +62,57 @@
   function openStream(active: Session): void {
     stream?.stop();
     stream = new EventStream(active);
-    stream.onConnectionChange((state) => (connected = state));
+    stream.onConnectionChange((state) => {
+      connected = state;
+      // A page that was away may have missed a demand, which would otherwise
+      // leave the receiver waiting until the supply timeout.
+      if (state) void resumeAllWaiting();
+    });
     stream.on(handleEvent);
     stream.start();
+  }
+
+  async function loadDevices(active: Session): Promise<void> {
+    try {
+      const body = await active.request<{ devices: Device[] }>('GET', '/api/devices');
+      devices = body.devices ?? [];
+    } catch (failure) {
+      onPairingError(failure);
+    }
+  }
+
+  async function refreshTransfer(id: string): Promise<void> {
+    if (!session) return;
+    try {
+      const updated = await session.request<Transfer>('GET', `/api/transfers/${id}`);
+      const index = transfers.findIndex((tr) => tr.id === id);
+      transfers =
+        index >= 0
+          ? transfers.map((tr) => (tr.id === id ? updated : tr))
+          : [updated, ...transfers];
+    } catch {
+      // Gone, or not ours. Neither is worth an error banner.
+    }
+  }
+
+  async function resumeAllWaiting(): Promise<void> {
+    if (!sender) return;
+    for (const transfer of transfers) {
+      if (sender.holds(transfer.id)) await sender.resumeWaiting(transfer.id);
+    }
+  }
+
+  async function cancelTransfer(id: string): Promise<void> {
+    if (!session) return;
+    try {
+      if (sender?.holds(id)) {
+        await sender.cancel(id);
+      } else {
+        await session.request('POST', `/api/transfers/${id}/cancel`, {});
+      }
+    } catch (failure) {
+      onPairingError(failure);
+    }
   }
 
   function handleEvent(event: ServerEvent): void {
@@ -54,17 +120,40 @@
       pendingRevision += 1;
       return;
     }
-    if (event.type === 'pairing_changed' && !Session.restore()) {
+
+    if (event.type === 'pairing_changed') {
+      if (Session.restore()) {
+        if (session) void loadDevices(session);
+        return;
+      }
       // This device's own pairing was revoked from the computer.
       session = null;
       stream?.stop();
+      return;
+    }
+
+    if (!event.transfer_id) return;
+
+    // The server asks whoever holds the files to supply an item from an
+    // offset. Only the page that actually holds them can answer.
+    const supply = event.payload?.supply;
+    if (typeof supply === 'number' && sender?.holds(event.transfer_id)) {
+      void sender.supply(event.transfer_id, supply, Number(event.payload?.offset ?? 0));
+    }
+
+    void refreshTransfer(event.transfer_id);
+
+    if (['transfer_completed', 'transfer_failed', 'transfer_cancelled'].includes(event.type)) {
+      sender?.release(event.transfer_id);
     }
   }
 
   async function onPaired(newSession: Session): Promise<void> {
     session = newSession;
+    sender = new Sender(newSession);
     error = null;
     openStream(newSession);
+    void loadDevices(newSession);
     // A screen reader user must be told the page became something else, or
     // their focus stays on the button they pressed.
     await Promise.resolve();
@@ -133,7 +222,30 @@
     -->
     <ProtectionNotice mode="simple" />
 
-    <p>{desktop ? t('nav.devices') : t('transfer.send')}</p>
+    {#if sender}
+      <SendPanel
+        {devices}
+        {sender}
+        onsent={(transfer) => (transfers = [transfer, ...transfers])}
+        onerror={onPairingError}
+      />
+    {/if}
+
+    <section aria-labelledby="transfers-title">
+      <h2 id="transfers-title">{t('nav.transfers')}</h2>
+      {#if transfers.length === 0}
+        <p class="muted">{t('transfer.none')}</p>
+      {:else}
+        {#each transfers as transfer (transfer.id)}
+          <TransferProgress
+            {transfer}
+            {session}
+            sending={sender?.holds(transfer.id) ?? false}
+            oncancel={cancelTransfer}
+          />
+        {/each}
+      {/if}
+    </section>
   {/if}
 </main>
 
@@ -180,6 +292,16 @@
     max-width: 60rem;
     margin: 0 auto;
     padding: var(--gap);
+  }
+
+  h2 {
+    font-size: 1rem;
+    margin: var(--gap) 0 0.5rem;
+  }
+
+  .muted {
+    color: var(--text-muted);
+    font-size: 0.875rem;
   }
 
   .error {

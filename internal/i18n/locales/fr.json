@@ -103,5 +103,14 @@
   "pairing.expired": "Personne n'a répondu à temps. Demandez un nouveau code à l'ordinateur et réessayez.",
   "pairing.abandoned": "L'appairage a été annulé sur cet appareil. Recommencez quand vous voulez.",
   "pairing.already_collected": "Un autre onglet a terminé cet appairage. Fermez celui-ci et utilisez l'autre, ou recommencez.",
-  "pairing.cancel": "Annuler"
+  "pairing.cancel": "Annuler",
+  "transfer.no_devices": "Aucun appareil appairé pour l'instant. Connectez d'abord un téléphone.",
+  "transfer.to": "Vers",
+  "transfer.selected": "{count} fichiers, {size}",
+  "transfer.clear": "Vider la sélection",
+  "transfer.keep_tab_open": "Gardez cet onglet ouvert pendant le transfert. C'est lui qui détient les fichiers.",
+  "transfer.incoming": "Réception",
+  "transfer.save": "Enregistrer",
+  "transfer.waiting_for_sender": "En attente de l'appareil émetteur.",
+  "transfer.none": "Rien pour le moment. Envoyez quelque chose depuis un autre appareil."
 }

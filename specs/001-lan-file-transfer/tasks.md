@@ -132,11 +132,11 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [X] T058 [US1] Implement the transfer declaration endpoint in `internal/httpapi/transfer_handlers.go`
 - [X] T059 [US1] Implement the downward content endpoint with range support in `internal/httpapi/content_download.go`
 - [X] T060 [US1] Implement the transfer orchestration service in `internal/app/transfers.go`
-- [ ] T061 [P] [US1] Build the desktop send view with drag and drop and multi-selection in `web/src/lib/SendPanel.svelte`, per FR-020 and FR-021
-- [ ] T062 [P] [US1] Build the progress view with speed and time remaining in `web/src/lib/TransferProgress.svelte`, per FR-030
-- [ ] T063 [US1] Build the mobile receive and save view in `web/src/routes/Mobile.svelte`, per FR-026
-- [ ] T064 [US1] Display the simple-mode protection statement at pairing and during transfers in `web/src/lib/ProtectionNotice.svelte`, per FR-047 and SC-016a
-- [ ] T065 [US1] Add translations for every string introduced by this story to `web/src/locales/en.json` and `web/src/locales/fr.json`
+- [X] T061 [P] [US1] Build the desktop send view with drag and drop and multi-selection in `web/src/lib/SendPanel.svelte`, per FR-020 and FR-021
+- [X] T062 [P] [US1] Build the progress view with speed and time remaining in `web/src/lib/TransferProgress.svelte`, per FR-030
+- [X] T063 [US1] Build the mobile receive and save view in `web/src/routes/Mobile.svelte`, per FR-026
+- [X] T064 [US1] Display the simple-mode protection statement at pairing and during transfers in `web/src/lib/ProtectionNotice.svelte`, per FR-047 and SC-016a
+- [X] T065 [US1] Add translations for every string introduced by this story to `web/src/locales/en.json` and `web/src/locales/fr.json`
 
 **Checkpoint**: User Story 1 is fully functional and independently testable. This is the MVP.
 

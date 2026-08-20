@@ -150,10 +150,21 @@ function directoryOf(file: File): string {
  *
  * A plain link, not a fetch: the browser's own download manager writes it to
  * disk, which is the only mechanism that handles a multi-gigabyte file on a
- * phone without holding it in memory. The credential travels as a header
- * everywhere else, but a download cannot set one, so this is only usable from a
- * context that already has a session.
+ * phone without holding it in memory. It cannot set a header, so the URL
+ * carries a ticket scoped to this one file. See internal/httpapi/tickets.go.
  */
-export function downloadPath(transferId: string, itemIndex: number): string {
-  return `/api/transfers/${encodeURIComponent(transferId)}/items/${itemIndex}/content`;
+export async function downloadURL(
+  session: Session,
+  transferId: string,
+  itemIndex: number,
+): Promise<string> {
+  const { ticket } = await session.request<{ ticket: string }>(
+    'POST',
+    `/api/transfers/${encodeURIComponent(transferId)}/items/${itemIndex}/ticket`,
+    {},
+  );
+  return (
+    `/api/transfers/${encodeURIComponent(transferId)}/items/${itemIndex}` +
+    `/content?ticket=${encodeURIComponent(ticket)}`
+  );
 }
