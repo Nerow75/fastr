@@ -51,8 +51,13 @@ test-a11y: ## Accessibility gate: axe-core plus keyboard-only traversal
 	cd $(WEB) && $(NPM) run test:a11y
 
 .PHONY: test-security
-test-security: ## Unpaired access, path traversal, replay, log hygiene
+test-security: test-crypto ## Unpaired access, path traversal, replay, log hygiene, crypto agreement
 	CGO_ENABLED=0 $(GO) test -count=1 -run 'Security|Traversal|Replay|Unpaired|LogHygiene' $(PKG)
+
+.PHONY: test-crypto
+test-crypto: ## Assert the Go and TypeScript crypto agree byte for byte
+	CGO_ENABLED=0 $(GO) test -count=1 -run 'MatchesCommittedVectors' $(PKG)
+	cd $(WEB) && $(NPM) run test:crypto
 
 .PHONY: test-network
 test-network: ## Assert zero sockets leave the local network

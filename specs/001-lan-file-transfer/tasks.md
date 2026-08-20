@@ -81,9 +81,9 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [X] T027 Implement the HTTP server, interface binding, and start/stop lifecycle in `internal/httpapi/server.go`, listening only when started per FR-001
 - [X] T028 Implement routing and the error response writer in `internal/httpapi/router.go`
 - [X] T029 Implement the ChaCha20-Poly1305 envelope with a monotonic counter in `internal/pairing/envelope.go`, per contracts/pairing.md
-- [ ] T030 [P] Implement the matching envelope on the client in `web/src/crypto/envelope.ts` using `@noble/ciphers`
+- [X] T030 [P] Implement the matching envelope on the client in `web/src/crypto/envelope.ts` using `@noble/ciphers`
 - [X] T031 Implement the X25519 handshake, HKDF derivation, and code binding in `internal/pairing/handshake.go`
-- [ ] T032 [P] Implement the client handshake in `web/src/crypto/handshake.ts` using `@noble/curves`
+- [X] T032 [P] Implement the client handshake in `web/src/crypto/handshake.ts` using `@noble/curves`
 - [X] T033 Implement pairing codes with single use, 3-minute expiry, 5-failure death, and rate limiting in `internal/pairing/code.go`, per FR-012 and FR-013
 - [X] T034 Implement session credentials and the authorization middleware in `internal/pairing/session.go`, refusing every unpaired request per FR-011
 - [X] T035 Implement the pairing endpoints in `internal/httpapi/pairing_handlers.go` per contracts/http-api.md
@@ -97,7 +97,7 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [ ] T040 Implement the application shell, routing between desktop and mobile views in `web/src/routes/App.svelte`
 - [ ] T041 [P] Establish the accessible base layer, focus ring, landmarks, and live region in `web/src/lib/a11y.ts` and `web/src/app.css`
 - [ ] T042 Implement tray icon, background lifecycle, and single-instance guard in `internal/platform/tray.go` and `cmd/fastr/main.go`, per FR-048 and FR-050
-- [ ] T043 [P] Implement the autostart toggle, off by default, in `internal/platform/autostart_linux.go` and `internal/platform/autostart_windows.go`, per FR-049
+- [X] T043 [P] Implement the autostart toggle, off by default, in `internal/platform/platform_linux.go` and `internal/platform/platform_windows.go`, per FR-049. Kept in the platform files rather than separate ones: it is three functions per OS and shares the config-directory logic already there.
 - [X] T044 [P] Write the network boundary test asserting zero sockets leave the local network in `test/integration/network_boundary_test.go`, per Principle I
 
 **Checkpoint**: A binary starts, serves an authenticated shell, pairs a device, and streams events. User stories can begin.

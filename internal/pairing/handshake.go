@@ -265,3 +265,9 @@ func (hs *Handshakes) Open() int {
 	defer hs.mu.Unlock()
 	return len(hs.open)
 }
+
+// PublicKey derives the public half of an X25519 private key. It exists so the
+// vector generator can build both sides of a handshake from fixed inputs.
+func PublicKey(private []byte) ([]byte, error) {
+	return curve25519.X25519(private, curve25519.Basepoint)
+}

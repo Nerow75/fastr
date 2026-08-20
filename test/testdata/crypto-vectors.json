@@ -1,0 +1,82 @@
+{
+  "handshakes": [
+    {
+      "name": "basic",
+      "client_priv": "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o=",
+      "client_pub": "yP7Kgb4ZbN8sreq/E8SQPXYy3OSVWqaLbl2a3vVOJhY=",
+      "server_priv": "ZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj0=",
+      "server_pub": "os6TxkuF54pi0j2IjkF3AmmwTcVWXt0dtUAwrjeB724=",
+      "salt": "yM/W3eTr8vkABw4VHCMqMTg/Rk1UW2JpcHd+hYyTmqE=",
+      "code": "482915",
+      "handshake_id": "abcdefghijklmnopqrstuv",
+      "key": "J1R/itYn0Oo/ssk46E2XevUXPmP8VdiZm7qbq9XzeJ8=",
+      "proof": "6eUMSUdGdKWRApibHIyT9r7MtHvEY36lYyJjliwylc0="
+    },
+    {
+      "name": "leading zeros in code",
+      "client_priv": "AgkQFx4lLDM6QUhPVl1ka3J5gIeOlZyjqrG4v8bN1Ns=",
+      "client_pub": "c+eZcckRAClyNjKoC3B79PYsEldjNG4ehxjWwNzDqjo=",
+      "server_priv": "ZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQbIikwNz4=",
+      "server_pub": "FbYJk4ZN6W6KASsA1K5bKB+Rfl0Odvak2KuO0/gxqBo=",
+      "salt": "ydDX3uXs8/oBCA8WHSQrMjlAR05VXGNqcXh/ho2Um6I=",
+      "code": "000042",
+      "handshake_id": "AAAAAAAAAAAAAAAAAAAAAA",
+      "key": "zTiOuu2VhbEI4TySadQ9GgSxRsa5HgQSpwhALFv+xvw=",
+      "proof": "/YgmJHKHRyo3mzB7e0g5P+WAYG/v57IULM6BEUTgTgk="
+    },
+    {
+      "name": "non ascii id",
+      "client_priv": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw=",
+      "client_pub": "u1D/noKldM+/gg6X9g+5wUPsdBXPUU+M/Zjv9Z4FlhQ=",
+      "server_priv": "Zm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD8=",
+      "server_pub": "6NDq1EWKU6s2mY1l2geNoSpxO7y3D28ttHWhE8sLFzM=",
+      "salt": "ytHY3+bt9PsCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKM=",
+      "code": "999999",
+      "handshake_id": "zz-_09AZ______________",
+      "key": "Zhp8MOEIgwMGyri/NSgPSfs82iRl4OkC6tx2kLGg2r4=",
+      "proof": "URrASdQo3A5V3KwGqrmXSoCPu8vK+Ua80cbDovgP/Lg="
+    }
+  ],
+  "envelopes": [
+    {
+      "name": "client to server",
+      "key": "MjlAR05VXGNqcXh/ho2Um6KpsLe+xczT2uHo7/b9BAs=",
+      "direction": 0,
+      "method": "POST",
+      "path": "/api/transfers",
+      "version": 1,
+      "plaintext": "eyJhIjoxfQ==",
+      "sealed": "AAAAAAAAAAHIr33h9eYzgAcqK9UQA7aZu8qQHW58Vw=="
+    },
+    {
+      "name": "server to client",
+      "key": "MzpBSE9WXWRrcnmAh46VnKOqsbi/xs3U2+Lp8Pf+BQw=",
+      "direction": 1,
+      "method": "GET",
+      "path": "/api/devices",
+      "version": 1,
+      "plaintext": "eyJkZXZpY2VzIjpbXX0=",
+      "sealed": "AAAAAAAAAAEQf6kyHdrw0yqZKO2eYFq9TuDt2ikOabJcnPg4sjg="
+    },
+    {
+      "name": "empty payload",
+      "key": "NDtCSVBXXmVsc3qBiI+WnaSrsrnAx87V3OPq8fj/Bg0=",
+      "direction": 0,
+      "method": "DELETE",
+      "path": "/api/pairings/x",
+      "version": 1,
+      "plaintext": "",
+      "sealed": "AAAAAAAAAAGtcIY4ohyKq+IiwPBVsITY"
+    },
+    {
+      "name": "path with unicode",
+      "key": "NTxDSlFYX2ZtdHuCiZCXnqWss7rByM/W3eTr8vkABw4=",
+      "direction": 0,
+      "method": "PATCH",
+      "path": "/api/devices/été",
+      "version": 1,
+      "plaintext": "eyJuYW1lIjoiw6l0w6kifQ==",
+      "sealed": "AAAAAAAAAAF799baMOhPL/U9rnVz73FjdBFCXixRud5MKQuFH/xNJQ=="
+    }
+  ]
+}
