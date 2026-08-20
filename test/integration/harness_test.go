@@ -19,22 +19,25 @@ import (
 	"github.com/Nerow75/fastr/internal/httpapi"
 	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/store"
+	"github.com/Nerow75/fastr/internal/transfer"
 )
 
 // harness is a running server with a real store, wired the way the binary wires
 // it. Tests talk to it over HTTP rather than calling handlers directly, so what
 // they prove is what a device on the network would actually meet.
 type harness struct {
-	t        *testing.T
-	server   *httptest.Server
-	store    *store.Store
-	codes    *pairing.Codes
-	sessions *pairing.Sessions
-	events   *httpapi.Events
-	tickets  *httpapi.Tickets
-	pendings *pairing.Pendings
-	logs     *bytes.Buffer
-	scrubber *app.Scrubber
+	t         *testing.T
+	server    *httptest.Server
+	store     *store.Store
+	codes     *pairing.Codes
+	sessions  *pairing.Sessions
+	events    *httpapi.Events
+	tickets   *httpapi.Tickets
+	pendings  *pairing.Pendings
+	pipes     *transfer.Pipes
+	transfers *app.Transfers
+	logs      *bytes.Buffer
+	scrubber  *app.Scrubber
 }
 
 func newHarness(t *testing.T) *harness {
@@ -57,6 +60,17 @@ func newHarness(t *testing.T) *harness {
 	tickets := httpapi.NewTickets()
 	pendings := pairing.NewPendings()
 
+	pipes := transfer.NewPipes()
+	transfers := &app.Transfers{
+		Store:    st,
+		Pipes:    pipes,
+		Notify:   httpapi.NewNotifier(events),
+		Space:    fakeSpace(1 << 40),
+		Log:      logger,
+		ReceiveD: t.TempDir(),
+		StagingD: t.TempDir(),
+	}
+
 	bundle := fstest.MapFS{
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fastr</title>")},
 	}
@@ -71,6 +85,7 @@ func newHarness(t *testing.T) *harness {
 		Bundle:     fs.FS(bundle),
 		Events:     events,
 		Tickets:    tickets,
+		Transfers:  transfers,
 		DeviceName: "Test Computer",
 		DeviceID:   "computer-1",
 		Trusted:    func(*http.Request) bool { return false },
@@ -81,7 +96,7 @@ func newHarness(t *testing.T) *harness {
 
 	return &harness{
 		t: t, server: srv, store: st, codes: codes,
-		sessions: sessions, events: events, tickets: tickets, pendings: pendings,
+		sessions: sessions, events: events, tickets: tickets, pendings: pendings, pipes: pipes, transfers: transfers,
 		logs: logs, scrubber: scrubber,
 	}
 }
@@ -362,4 +377,19 @@ func discardLogger() *slog.Logger {
 func contextWithTimeout(t *testing.T, d time.Duration) (context.Context, context.CancelFunc) {
 	t.Helper()
 	return context.WithTimeout(t.Context(), d)
+}
+
+// fakeSpace reports a fixed amount of free space, so tests are not at the mercy
+// of the machine running them.
+type fakeSpace uint64
+
+func (f fakeSpace) FreeSpace(string) (uint64, error) { return uint64(f), nil }
+
+// newHarnessWithSpace builds a harness whose destination reports a fixed amount
+// of free space, so the refusal path can be exercised without filling a disk.
+func newHarnessWithSpace(t *testing.T, free uint64) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.transfers.Space = fakeSpace(free)
+	return h
 }

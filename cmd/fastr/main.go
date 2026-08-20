@@ -21,6 +21,7 @@ import (
 	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/platform"
 	"github.com/Nerow75/fastr/internal/store"
+	"github.com/Nerow75/fastr/internal/transfer"
 )
 
 // version is set at build time from the git description. See the Makefile.
@@ -127,6 +128,27 @@ func run(args []string) error {
 	sessions := pairing.NewSessions(db)
 	pendings := pairing.NewPendings()
 
+	// The pipe joins a fetching receiver to a supplying sender. When a receiver
+	// starts waiting, the sender is told which item and from which offset, so a
+	// page that reconnects mid-transfer knows where to resume.
+	pipes := transfer.NewPipes()
+	transfers := &app.Transfers{
+		Store:    db,
+		Pipes:    pipes,
+		Notify:   httpapi.NewNotifier(events),
+		Space:    transfer.PlatformChecker{Platform: plat},
+		Log:      log,
+		ReceiveD: settings.ReceiveFolder,
+		StagingD: settings.StagingFolder,
+	}
+	pipes.OnDemand = func(key transfer.Key, offset uint64) {
+		events.Publish(httpapi.Event{
+			Type:       httpapi.EventTransferProgress,
+			TransferID: key.TransferID,
+			Payload:    map[string]any{"supply": key.ItemIndex, "offset": offset},
+		})
+	}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Log:        log,
 		Store:      db,
@@ -137,6 +159,7 @@ func run(args []string) error {
 		Bundle:     bundle,
 		Events:     events,
 		Tickets:    tickets,
+		Transfers:  transfers,
 		DeviceName: settings.DeviceName,
 		DeviceID:   deviceIdentity(db, log),
 		// Trusted mode has its own listener, which does not exist yet. Until

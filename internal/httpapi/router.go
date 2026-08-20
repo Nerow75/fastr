@@ -27,6 +27,7 @@ type Deps struct {
 	Bundle     fs.FS
 	Events     *Events
 	Tickets    *Tickets
+	Transfers  *app.Transfers
 	// DeviceName and DeviceID identify this instance to peers.
 	DeviceName string
 	DeviceID   string
@@ -66,6 +67,19 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("DELETE /api/pairings/{id}", d.authenticated(d.handleRevoke))
 	mux.Handle("PATCH /api/pairings/{id}", d.authenticated(d.handlePairingUpdate))
 	mux.Handle("POST /api/events/ticket", d.authenticated(d.handleEventTicket))
+
+	mux.Handle("POST /api/transfers", d.authenticated(d.handleDeclareTransfer))
+	mux.Handle("GET /api/transfers/{id}", d.authenticated(d.handleGetTransfer))
+	mux.Handle("POST /api/transfers/{id}/cancel", d.authenticated(d.handleCancelTransfer))
+	mux.Handle("GET /api/transfers/{id}/waiting", d.authenticated(d.handlePendingSupply))
+	mux.Handle("POST /api/transfers/{id}/items/{index}/complete", d.authenticated(d.handleCompleteItem))
+
+	// Bulk content. Not sealed in simple mode: constitution v2.0.1 is explicit
+	// that file content travels in the clear there, and the interface says so.
+	// These stream, so they must not pass through the envelope middleware,
+	// which reads a whole body into memory.
+	mux.Handle("GET /api/transfers/{id}/items/{index}/content", d.streaming(d.handleFetchContent))
+	mux.Handle("POST /api/transfers/{id}/items/{index}/supply", d.streaming(d.handleSupplyContent))
 	// The stream authenticates with a single-use ticket rather than a bearer
 	// header, because EventSource cannot set one. See tickets.go.
 	mux.HandleFunc("GET /api/events", d.handleEvents)
@@ -103,6 +117,24 @@ func securityWrapper(next http.Handler) http.Handler {
 		// No CORS headers means no cross-origin caller, which is the correct
 		// posture for a server that only ever talks to its own bundle.
 		next.ServeHTTP(w, r)
+	})
+}
+
+// streaming wraps a handler that reads or writes bulk content.
+//
+// It authorizes the caller but does not touch the body: the envelope path reads
+// a whole payload into memory, which is exactly what a 10 GB transfer must not
+// do.
+func (d Deps) streaming(h func(*Session, http.ResponseWriter, *http.Request)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		trusted := d.Trusted != nil && d.Trusted(r)
+
+		ps, err := d.Sessions.Resolve(r, trusted)
+		if err != nil {
+			d.writeError(w, r, authError(err))
+			return
+		}
+		h(&Session{Session: ps, deps: d}, w, r)
 	})
 }
 

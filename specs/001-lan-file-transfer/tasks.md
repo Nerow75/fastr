@@ -113,7 +113,7 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 ### Tests for User Story 1
 
-- [ ] T045 [P] [US1] Contract test for the transfer declaration and content endpoints in `test/integration/transfer_contract_test.go`
+- [X] T045 [P] [US1] Contract test for the transfer declaration and content endpoints in `test/integration/transfer_contract_test.go`
 - [ ] T046 [P] [US1] Integration test for the full pair-then-send journey in `test/integration/us1_send_to_phone_test.go`
 - [ ] T047 [P] [US1] Memory-flatness test comparing a 10 MB and a 10 GB transfer in `test/integration/large_transfer_test.go`, per SC-003
 - [ ] T048 [P] [US1] Path traversal rejection test in `test/integration/path_traversal_test.go`, per FR-018
@@ -129,9 +129,9 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [X] T055 [US1] Implement BLAKE2b checksumming during the copy in `internal/transfer/checksum.go`, per FR-032
 - [X] T056 [US1] Implement destination filename sanitization and collision resolution in `internal/transfer/naming.go`, per FR-024 and FR-025
 - [X] T057 [US1] Implement the staging-then-verify-then-move write path in `internal/transfer/writer.go`, per FR-033
-- [ ] T058 [US1] Implement the transfer declaration endpoint in `internal/httpapi/transfer_handlers.go`
-- [ ] T059 [US1] Implement the downward content endpoint with range support in `internal/httpapi/content_download.go`
-- [ ] T060 [US1] Implement the transfer orchestration service in `internal/app/transfers.go`
+- [X] T058 [US1] Implement the transfer declaration endpoint in `internal/httpapi/transfer_handlers.go`
+- [X] T059 [US1] Implement the downward content endpoint with range support in `internal/httpapi/content_download.go`
+- [X] T060 [US1] Implement the transfer orchestration service in `internal/app/transfers.go`
 - [ ] T061 [P] [US1] Build the desktop send view with drag and drop and multi-selection in `web/src/lib/SendPanel.svelte`, per FR-020 and FR-021
 - [ ] T062 [P] [US1] Build the progress view with speed and time remaining in `web/src/lib/TransferProgress.svelte`, per FR-030
 - [ ] T063 [US1] Build the mobile receive and save view in `web/src/routes/Mobile.svelte`, per FR-026
