@@ -12,10 +12,12 @@ secrets/
 certs/
 
 # --- Build output -------------------------------------------------------------
+/bin/
 /target/
 /dist/
 /build/
 /out/
+web/dist/
 *.exe
 *.dll
 *.so

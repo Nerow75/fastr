@@ -1,0 +1,114 @@
+/*
+ * Base layer. Every colour is defined as a token on :root first, then redefined
+ * for dark, so no colour has its only definition inside a media query.
+ * Fonts are system stacks: Principle I forbids fetching a webfont.
+ */
+
+:root {
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --border: #d9d7d2;
+  --text: #1a1a18;
+  --text-muted: #5c5a55;
+  --accent: #1f5f4b;
+  --accent-text: #ffffff;
+  --warn-bg: #fdf3e3;
+  --warn-border: #d9a441;
+  --warn-text: #6b4a05;
+  --danger: #9b2c2c;
+
+  --radius: 10px;
+  --gap: 1rem;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #16171a;
+    --surface: #1f2126;
+    --border: #35383f;
+    --text: #ececea;
+    --text-muted: #a3a49f;
+    --accent: #5fbfa1;
+    --accent-text: #10221c;
+    --warn-bg: #2e2617;
+    --warn-border: #a37c2c;
+    --warn-text: #f0d9a8;
+    --danger: #e07070;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #16171a;
+  --surface: #1f2126;
+  --border: #35383f;
+  --text: #ececea;
+  --text-muted: #a3a49f;
+  --accent: #5fbfa1;
+  --accent-text: #10221c;
+  --warn-bg: #2e2617;
+  --warn-border: #a37c2c;
+  --warn-text: #f0d9a8;
+  --danger: #e07070;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/*
+ * FR-039g: a visible focus indicator, and one that survives a dark background.
+ * :focus-visible only, so pointer users do not see a ring on every click.
+ */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Skip link, revealed on focus. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.75rem 1rem;
+  z-index: 100;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* Visually hidden but exposed to assistive technology. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

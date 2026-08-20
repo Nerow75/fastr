@@ -1,0 +1,57 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - bodyclose
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nilerr
+    - staticcheck
+    - unconvert
+    - unused
+    - forbidigo
+    - depguard
+
+  settings:
+    forbidigo:
+      # Principle I: nothing reaches beyond the local network at runtime.
+      # http.Get and friends use DefaultClient with no control over the target.
+      forbid:
+        - pattern: '^http\.(Get|Post|Head|PostForm)$'
+          msg: "Use an explicitly constructed client restricted to local addresses. Principle I forbids outbound requests."
+        - pattern: '^http\.DefaultClient$'
+          msg: "DefaultClient has no dial restriction. Principle I forbids outbound requests."
+        - pattern: '^net\.Dial$'
+          msg: "Dial through internal/httpapi's restricted dialer so the local-network guarantee stays enforceable."
+      analyze-types: true
+
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: "github.com/mattn/go-sqlite3"
+              desc: "Requires cgo, which breaks cross-compilation. See research.md section 2."
+            - pkg: "github.com/sirupsen/logrus"
+              desc: "No logging framework. Use internal/app/logging.go, which enforces secret redaction."
+
+    gosec:
+      excludes:
+        # G115 flags integer conversions that are checked at the call site.
+        - G115
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt

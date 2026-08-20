@@ -1,0 +1,3 @@
+# Large fixtures are generated locally with `make fixture`, never committed.
+# CONTRIBUTING.md: "Test fixtures stay small."
+large/

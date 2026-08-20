@@ -29,16 +29,16 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 **Purpose**: Get a buildable, lintable, CI-covered skeleton on both operating systems.
 
-- [ ] T001 Initialize Go module and directory skeleton per plan.md in `go.mod`, `cmd/fastr/`, `internal/`, `test/`
-- [ ] T002 [P] Scaffold the Svelte and TypeScript application with Vite in `web/package.json`, `web/vite.config.ts`, `web/tsconfig.json`
-- [ ] T003 [P] Add `Makefile` with `build`, `build-all`, `test`, `test-e2e`, `test-a11y`, `test-security`, `test-network`, `test-large`, `fixture`, `capture` targets
-- [ ] T004 [P] Configure `golangci-lint` in `.golangci.yml` with a linter forbidding `net/http` clients to non-local hosts
-- [ ] T005 [P] Configure ESLint and Prettier for the web application in `web/eslint.config.js`
-- [ ] T006 Wire `go:embed` of `web/dist` into `internal/httpapi/assets.go`, failing the build when the bundle is missing
-- [ ] T007 [P] Add CI workflow running build and tests on Linux and Windows in `.github/workflows/ci.yml`
-- [ ] T008 [P] Add secret scanning to CI in `.github/workflows/ci.yml`, per constitution quality gate 6
-- [ ] T009 [P] Add cross-compilation release workflow producing checksummed binaries in `.github/workflows/release.yml`
-- [ ] T010 [P] Add `test/testdata/.gitignore` excluding `large/`, and a `make fixture` generator in `test/testdata/generate.go`
+- [X] T001 Initialize Go module and directory skeleton per plan.md in `go.mod`, `cmd/fastr/`, `internal/`, `test/`
+- [X] T002 [P] Scaffold the Svelte and TypeScript application with Vite in `web/package.json`, `web/vite.config.ts`, `web/tsconfig.json`
+- [X] T003 [P] Add `Makefile` with `build`, `build-all`, `test`, `test-e2e`, `test-a11y`, `test-security`, `test-network`, `test-large`, `fixture`, `capture` targets
+- [X] T004 [P] Configure `golangci-lint` in `.golangci.yml` with a linter forbidding `net/http` clients to non-local hosts
+- [X] T005 [P] Configure ESLint and Prettier for the web application in `web/eslint.config.js`
+- [X] T006 Wire `go:embed` of `web/dist` into `web/embed.go`, with the serving handler in `internal/httpapi/assets.go`, failing the build when the bundle is missing. The embed lives in `web/` because a `go:embed` directive cannot reference a parent directory.
+- [X] T007 [P] Add CI workflow running build and tests on Linux and Windows in `.github/workflows/ci.yml`
+- [X] T008 [P] Add secret scanning to CI in `.github/workflows/ci.yml`, per constitution quality gate 6
+- [X] T009 [P] Add cross-compilation release workflow producing checksummed binaries in `.github/workflows/release.yml`
+- [X] T010 [P] Add `test/testdata/.gitignore` excluding `large/`, and a `make fixture` generator in `test/testdata/generate.go`
 
 ---
 

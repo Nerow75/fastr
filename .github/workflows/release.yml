@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web bundle
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run build
+
+      # Principle VII: every release is a reproducible build from a tagged
+      # commit, with published checksums. -trimpath removes absolute paths,
+      # which would otherwise make the output machine-dependent.
+      - name: Cross-compile
+        run: make build-all
+
+      - name: Checksums
+        working-directory: bin
+        run: sha256sum fastr-* > SHA256SUMS
+
+      - name: Verify reproducibility
+        run: |
+          cp bin/SHA256SUMS /tmp/first.txt
+          rm -rf bin
+          make build-all
+          cd bin && sha256sum fastr-* > /tmp/second.txt
+          if ! diff -u /tmp/first.txt /tmp/second.txt; then
+            echo "::error::Build is not reproducible: two builds of the same commit differ."
+            exit 1
+          fi
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bin/fastr-*
+            bin/SHA256SUMS
+          generate_release_notes: true

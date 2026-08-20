@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  # Principle IV: a failure on either operating system blocks the release.
+  # Both are required checks; neither is advisory.
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web bundle
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Build
+        run: go build -trimpath ./...
+
+      - name: Unit and integration tests
+        run: go test -count=1 ./...
+
+      - name: Security gate
+        run: go test -count=1 -run 'Security|Traversal|Replay|Unpaired|LogHygiene' ./...
+
+      - name: Network boundary gate
+        run: go test -count=1 -run 'NetworkBoundary' ./...
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Lint web application
+        working-directory: web
+        run: npm ci --no-audit --no-fund && npm run lint
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Constitution quality gate 6. A key, certificate, or pairing token
+      # reaching a public repository is not recoverable by deleting the commit.
+      - name: Scan history for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reject committed key material
+        run: |
+          if git ls-files | grep -E '\.(pem|key|crt|p12|pfx)$'; then
+            echo "::error::Key material is committed. See .gitignore and Principle VII."
+            exit 1
+          fi
