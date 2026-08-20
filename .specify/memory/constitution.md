@@ -1,6 +1,43 @@
 <!--
 Sync Impact Report
 ==================
+Version change: 1.1.0 -> 2.0.0
+Bump type: MAJOR (a NON-NEGOTIABLE principle is redefined in a backward-incompatible way)
+
+Amendment 2.0.0 (2026-08-20)
+----------------------------
+Motivation: planning-phase research established a hard browser constraint. Browsers grant a
+secure context only to loopback addresses, never to a local network address (MDN, Secure
+Contexts), and outside a secure context both crypto.subtle and service workers are unavailable
+(MDN, SubtleCrypto). Without service workers there is no way to decrypt a stream while the
+browser writes it to disk, so receiving a large encrypted file on a phone would require holding
+it whole in memory, which is not possible on iOS. LocalSend, the closest comparable project,
+hits the same wall and serves its browser mode over plain HTTP for exactly this reason.
+
+Principles I (local-first), V (encryption mandatory) and VI (frictionless onboarding) therefore
+cannot all hold at once for mobile reception of large files. The project owner arbitrated in
+favour of onboarding, with an opt-in path for users who want full protection.
+
+Modified:
+  - Principle V (Security On Shared Networks). Removed "a cleartext fallback is forbidden by
+    default". Added two explicit protection modes: simple mode by default, where pairing,
+    credentials and metadata are encrypted and content travels in the clear, and an optional
+    per-device trusted mode that encrypts content end to end. Added a duty of honesty: the
+    system must never claim a protection it does not provide, and must state plainly that
+    simple-mode content is readable by anyone on the same network. Pairing, filesystem
+    confinement, binding, revocation and log hygiene are unchanged.
+  - Technical Constraints > "Transport encryption". Rewritten to match the two modes.
+
+Added:
+  - Technical Constraints > "Implementation language": Go, single static binary, no runtime.
+
+Unchanged: all other principles, sections, and governance rules.
+
+Impact on existing artifacts: specs/001-lan-file-transfer FR-017 and FR-044 to FR-047 must be
+rewritten to describe both modes. No code has been written, so no migration is needed.
+
+Previous history
+----------------
 Version change: 1.0.0 -> 1.1.0
 Bump type: MINOR (a technical constraint is materially redefined; no principle added or removed)
 
@@ -121,13 +158,33 @@ host device. Anonymous access is forbidden, including read access.
 
 The server MUST NEVER expose the filesystem. Only a configured receive folder and files
 explicitly offered for a transfer are reachable. Path traversal MUST be tested and rejected.
-Encryption in transit is mandatory; a cleartext fallback is forbidden by default. The server
-MUST NOT listen until the user starts it, and MUST bind only to the interfaces of the chosen
-local network. Paired sessions MUST be listed in the UI, expirable, and revocable at any
-time. Secrets (keys, pairing tokens) MUST NEVER appear in logs.
+The server MUST NOT listen until the user starts it, and MUST bind only to the interfaces of
+the chosen local network. Paired sessions MUST be listed in the UI, expirable, and revocable
+at any time. Secrets (keys, pairing tokens) MUST NEVER appear in logs.
+
+**Two protection modes.** Browsers grant a secure context only to loopback addresses, never
+to a local network address, and a locally issued certificate produces a security warning.
+Full content encryption on the mobile side therefore cannot coexist with a frictionless first
+connection. fastr resolves this explicitly rather than pretending otherwise:
+
+- **Simple mode (default)**: pairing, credentials, and metadata are encrypted. File content
+  travels in the clear on the local network. This is the default because onboarding friction
+  would otherwise sink the product.
+- **Trusted mode (optional, per device)**: a one-time setup step establishes a browser-trusted
+  channel. Content is then encrypted end to end, and reliable resume and streamed writing
+  become available.
+
+The system MUST show which mode is in use for each device, at pairing time and in the
+transfer view. The user MUST be able to require trusted mode for a given device and have
+simple-mode connections from it refused.
+
+**The system MUST NEVER claim a protection it does not provide.** Simple mode MUST NEVER be
+described as private, secure, or encrypted without qualification, and the interface MUST state
+plainly that content is readable by anyone on the same network.
 
 Rationale: a home Wi-Fi, an office, or a guest network are shared environments. "Local" does
-not mean "trusted".
+not mean "trusted". Where a real constraint prevents protection, the honest response is to say
+so in the interface, not to soften the wording.
 
 ### VI. Effortless By Default
 
@@ -170,10 +227,12 @@ behavior can be audited by anyone.
 - **Runtime dependencies**: no reliance on any external network service at runtime,
   including for time, fonts, and icons.
 - **Discovery**: mDNS / DNS-SD on the local network, with manual address entry as fallback.
-- **Transport encryption**: all transfer content and all pairing exchanges MUST be encrypted.
-  Which layer provides that encryption is a planning decision, not a constitutional one.
-  Establishing it MUST NEVER require the user to accept a browser security warning or install a
-  certificate. Onboarding friction is the constraint; the mechanism is free.
+- **Transport encryption**: pairing exchanges, credentials, and metadata MUST always be
+  encrypted, in every mode. File content is encrypted in trusted mode and travels in the clear
+  in simple mode, per Principle V. Reaching the default simple mode MUST NEVER require the user
+  to accept a browser security warning or install anything.
+- **Implementation language**: Go, compiled to a single static binary per platform with no
+  runtime to install, cross-compiled to Linux and Windows from one machine.
 - **Non-secure browser context**: serving the mobile page over a plain local address means
   browsers treat it as a non-secure context. Capabilities that browsers reserve for secure
   contexts are therefore unavailable, and the application MUST supply its own equivalents rather
@@ -226,4 +285,4 @@ document before any code that depends on it.
 be listed and explicitly justified, otherwise the plan is rejected. A compliance review runs
 at every merge and every release.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20
+**Version**: 2.0.0 | **Ratified**: 2026-08-20 | **Last Amended**: 2026-08-20

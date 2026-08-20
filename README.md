@@ -63,28 +63,55 @@ These are non-negotiable and enforced by the [project constitution](.specify/mem
 | **Zero install on mobile** | Browser only. Nothing essential may depend on an API that iOS Safari lacks. |
 | **No size limit** | Streamed transfers, constant memory, resume after a dropped connection, end-to-end checksum. |
 | **Linux / Windows parity** | Every feature behaves identically on both, verified in CI. A failure on either blocks the release. |
-| **Secure on shared networks** | Explicit pairing, never any filesystem exposure, encrypted in transit, revocable sessions. |
+| **Secure on shared networks** | Explicit pairing, never any filesystem exposure, revocable sessions. Two protection modes, see below. |
 | **Effortless by default** | Three actions to send a file. First successful transfer in under two minutes, without reading docs. |
 | **Open source in the open** | MIT, developed publicly, reproducible builds, no secrets in the repo. |
 
 ## Roadmap
 
 - [x] Project constitution ratified
-- [ ] Feature specification
-- [ ] Technology stack and implementation plan
+- [x] Feature specification
+- [x] Technology stack and implementation plan
 - [ ] Device discovery and pairing
 - [ ] Desktop to phone transfer
 - [ ] Phone to desktop transfer
 - [ ] Resume after interruption, integrity verification
 - [ ] Signed builds for Linux and Windows
 
+## A word on encryption, up front
+
+Browsers grant a "secure context" only to loopback addresses, never to a local network address
+like `192.168.1.20`. Outside a secure context, the browser's cryptography API and service workers
+do not exist. Without a service worker, nothing can decrypt a stream while the browser writes it
+to disk, so a large encrypted file could only be received by holding it whole in memory, which
+iOS will not allow. Serving HTTPS with a self-signed certificate does not help: the browser shows
+a security warning instead.
+
+So fastr ships two modes, and says which one you are in:
+
+- **Simple mode (default)**: pairing, credentials, and metadata are encrypted. **File content
+  travels in the clear on your network.** Anyone on the same Wi-Fi can read it. Fine at home,
+  not fine in a coworking space. Nothing to install, no warning, no setup.
+- **Trusted mode (optional)**: a one-time setup per phone installs a certificate authority
+  generated on your own machine. The phone then gets a real secure context, and content is
+  encrypted end to end, with reliable resume and streamed writing as a bonus.
+
+We would rather state this plainly than describe the default as "secure" and let you find out
+later. [LocalSend](https://github.com/localsend/protocol), the closest comparable project, hits
+the same wall and serves its browser mode over plain HTTP for exactly this reason.
+
 ## Technology stack
 
-Not decided yet. The stack is chosen during the planning phase, under the constraints set by the
-constitution: a self-contained binary with no runtime to install beforehand, identical behavior on
-Linux and Windows, and no external network dependency at runtime.
+- **Desktop**: Go, compiled to a single static binary per platform. No runtime to install.
+- **Web application**: Svelte and TypeScript, built with Vite and embedded in the binary.
+- **Discovery**: mDNS / DNS-SD, advertising `_fastr._tcp`.
+- **State**: a single bbolt file. No database server, no cgo.
+- **Cryptography**: X25519 and ChaCha20-Poly1305, with audited pure-JavaScript implementations on
+  the phone, where the browser's native API is unavailable.
 
-If you have a strong opinion, this is the right moment to open an issue.
+Nine direct dependencies, each argued for in
+[research.md](specs/001-lan-file-transfer/research.md#dependency-budget). No HTTP framework, no
+ORM, nothing requiring cgo, and nothing that makes a network call you did not ask for.
 
 ## Contributing
 

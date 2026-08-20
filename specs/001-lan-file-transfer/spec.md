@@ -310,8 +310,8 @@ verify it arrives intact while nothing is left behind on the computer.
   listed, so the user can tell at a glance which devices can write to their machine unattended.
 - **FR-016d**: A transfer from an ask-every-time device MUST be refused, not queued indefinitely,
   when the recipient does not answer within a bounded window, and the sender MUST be told why.
-- **FR-017**: All transfers MUST be encrypted in transit, with no cleartext fallback enabled by
-  default.
+- **FR-017**: Pairing exchanges, credentials, and transfer metadata MUST always be encrypted, in
+  every mode. File content is encrypted in trusted mode and travels in the clear in simple mode.
 - **FR-018**: The system MUST NEVER expose the filesystem beyond the configured receive folder
   and the files explicitly offered for a transfer, and MUST reject any attempt to reach outside
   those bounds.
@@ -408,17 +408,30 @@ verify it arrives intact while nothing is left behind on the computer.
 - **FR-043**: Every capability MUST work on current Android and iOS browsers, and no essential
   flow MUST depend on a capability that either platform lacks.
 
-**First-connection trust**
+**Protection modes**
 
-- **FR-044**: Connecting a new phone MUST NOT present the user with any browser security warning
-  or certificate prompt. Onboarding friction takes priority over displaying a browser padlock.
-- **FR-045**: Transfer content and pairing exchanges MUST be encrypted by the application itself,
-  independently of any transport-level certificate, using a key established during pairing.
-- **FR-046**: The system MUST NOT depend on any capability that a browser reserves for secure
-  contexts for an essential flow, and MUST provide its own equivalent where one is needed.
-- **FR-047**: The system MUST show the user, in plain language, that the connection is encrypted
-  and what that does and does not protect against, given that the browser will not display its
-  usual indicator.
+- **FR-044**: Reaching the default mode MUST NOT present the user with any browser security
+  warning, certificate prompt, or installation step.
+- **FR-045**: In simple mode, pairing exchanges, credentials, and metadata MUST be encrypted by
+  the application using a key established during pairing, while file content travels in the
+  clear on the local network.
+- **FR-046**: Simple mode MUST NOT depend on any capability a browser reserves for secure
+  contexts, and MUST provide its own equivalent wherever an essential flow needs one.
+- **FR-047**: The system MUST state plainly, at pairing time and in the transfer view, that
+  simple-mode content is readable by anyone on the same network. It MUST NEVER describe simple
+  mode as private, secure, or encrypted without that qualification.
+- **FR-047a**: The system MUST offer an optional trusted mode, set up once per device, that
+  encrypts file content end to end and unlocks reliable resume and streamed writing on the
+  phone.
+- **FR-047b**: The mode in use MUST be visible for every device, wherever devices are listed and
+  during every transfer.
+- **FR-047c**: The user MUST be able to require trusted mode for a given device, after which
+  simple-mode connections from that device MUST be refused with a clear explanation.
+- **FR-047d**: Setting up trusted mode MUST be guided step by step, MUST be abandonable at any
+  point without breaking the existing simple-mode pairing, and MUST explain what it buys before
+  it asks for anything.
+- **FR-047e**: A transfer MUST NOT silently downgrade from trusted mode to simple mode. A
+  downgrade MUST be refused or explicitly confirmed by the user.
 
 **Background availability**
 
@@ -509,16 +522,23 @@ verify it arrives intact while nothing is left behind on the computer.
   across the full catalogue of error states.
 - **SC-015**: Connecting a new phone produces zero browser security warnings and zero certificate
   prompts, on both Android and iOS browsers.
-- **SC-016**: Transfer content is unreadable to a party capturing traffic on the local network,
-  verified by inspecting a captured transfer.
+- **SC-016**: In trusted mode, transfer content is unreadable to a party capturing traffic on the
+  local network, verified by inspecting a captured transfer. In simple mode, pairing exchanges,
+  credentials, and metadata are unreadable in the same capture, and no credential is recoverable
+  from it.
+- **SC-016a**: Every screen where a simple-mode transfer is set up or shown states that content
+  is readable on the local network, verified across the full interface. Zero screens describe
+  simple mode as private, secure, or encrypted without that qualification.
+- **SC-016b**: Setting up trusted mode on a phone takes under 3 minutes following the in-app
+  guidance alone, and abandoning it midway leaves the existing pairing working.
 - **SC-017**: A phone can send a file to a computer whose window has never been opened during
   that session, in 100% of attempts where the computer is powered on and on the network.
 - **SC-018**: While idle in the background, the application stays under 1% average processor use
   and under 100 MB of memory.
 - **SC-019**: After a relayed phone-to-phone transfer ends, whether it succeeded, failed, or was
   cancelled, zero bytes of relayed content remain on the relaying computer.
-- **SC-020**: Application-layer encryption costs no more than 25% of the throughput measured for
-  the same transfer without it, on a mid-range phone.
+- **SC-020**: Trusted-mode encryption costs no more than 25% of the throughput measured for the
+  same transfer in simple mode, on a mid-range phone.
 - **SC-021**: At most one transfer is active at any moment, verified while ten transfers are
   queued across several devices, and the queue completes all ten without user intervention.
 - **SC-022**: Every user-facing string is available in English and in French, with zero
@@ -540,18 +560,21 @@ verify it arrives intact while nothing is left behind on the computer.
 - **The desktop application runs in the background.** It stays available with its window closed
   and offers to start with the user's session, so a phone can reach it without anyone touching
   the computer. The user can disable autostart and stop it entirely at any time.
-- **Encryption is done by the application, not by the transport.** This was chosen so that
-  connecting a phone never shows a browser security warning, which would otherwise be the single
-  worst moment in onboarding.
+- **Two protection modes, simple by default.** Browsers grant a secure context only to loopback
+  addresses, never to a local network address, and outside a secure context neither the native
+  cryptography API nor service workers exist. Without service workers, nothing can decrypt a
+  stream while the browser writes it to disk, so a large encrypted file could only be received by
+  holding it whole in memory, which iOS will not allow.
 
-  **Known consequence, carried into planning as a risk**: serving the page over a plain local
-  address means the browser treats it as a non-secure context, so capabilities browsers reserve
-  for secure contexts are unavailable, including the native cryptography API and service workers.
-  The application must bring its own cryptography and its own mechanism for writing large
-  incoming files on the phone. Both are feasible and both cost throughput on mobile. If a
-  planning-phase spike shows the cost is unacceptable, the fallback is a hybrid: transport-level
-  encryption where a browser accepts it without friction, application-level encryption
-  everywhere else.
+  The project therefore ships **simple mode** by default: pairing, credentials, and metadata
+  encrypted by the application, file content in the clear on the local network, stated plainly in
+  the interface. An optional **trusted mode**, set up once per device, establishes a
+  browser-trusted channel and restores full content encryption along with reliable resume and
+  streamed writing.
+
+  This is a deliberate arbitration between three project principles that cannot all hold at once,
+  recorded in constitution v2.0.0. The obligation that replaces the lost guarantee is honesty:
+  the interface never claims a protection it does not provide.
 - **One receive folder per computer**, rather than a per-device or per-transfer destination
   chosen at send time. Chosen for simplicity; a per-transfer destination can be added later.
 - **Transfers are one-shot, not a sync.** The system never mirrors, watches, or reconciles
