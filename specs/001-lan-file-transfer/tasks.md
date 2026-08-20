@@ -114,10 +114,12 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 ### Tests for User Story 1
 
 - [X] T045 [P] [US1] Contract test for the transfer declaration and content endpoints in `test/integration/transfer_contract_test.go`
-- [ ] T046 [P] [US1] Integration test for the full pair-then-send journey in `test/integration/us1_send_to_phone_test.go`
-- [ ] T047 [P] [US1] Memory-flatness test comparing a 10 MB and a 10 GB transfer in `test/integration/large_transfer_test.go`, per SC-003
-- [ ] T048 [P] [US1] Path traversal rejection test in `test/integration/path_traversal_test.go`, per FR-018
-- [ ] T049 [P] [US1] End-to-end browser test of the QR-to-received-file journey in `test/e2e/us1_first_transfer.spec.ts`
+- [X] T046 [P] [US1] Integration test for the full pair-then-send journey, in `test/integration/transfer_test.go` rather than the filename the task named. It sits with the other transfer tests, which share a harness and a set of helpers.
+- [X] T047a [P] [US1] Memory-flatness test at the engine level, comparing 1 MB and 512 MB through the same copy path, in `internal/transfer/transfer_test.go`. Runs in the normal suite.
+- [ ] T047b [P] [US1] The full 10 GB variant of SC-003, end to end through the HTTP path, in `test/integration/large_transfer_test.go` behind the `large` build tag. Needs the `make fixture` generator and a nightly CI job; the property is already proven at the engine level, this is the number the success criterion actually names.
+- [X] T048a [P] [US1] Path traversal rejection at the resolution level, in `internal/transfer/transfer_test.go`: nine hostile inputs against both platforms' rule sets, asserting nothing escapes the receive folder.
+- [ ] T048b [P] [US1] The same at the HTTP level, once a receive path exists to attack. Desktop-to-phone saves through the browser's download manager and never touches destination naming, so the attack surface this targets arrives with User Story 2.
+- [ ] T049 [P] [US1] End-to-end browser test of the QR-to-received-file journey in `test/e2e/us1_first_transfer.spec.ts`. Not started: needs Playwright installed with Chromium and WebKit, which is also what T140 and T141 depend on.
 
 ### Implementation for User Story 1
 
