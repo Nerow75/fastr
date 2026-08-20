@@ -124,11 +124,11 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [ ] T050 [P] [US1] Implement connection info and QR code generation in `internal/httpapi/connect.go`
 - [ ] T051 [P] [US1] Build the pairing screen with code entry in `web/src/lib/PairingScreen.svelte`
 - [ ] T052 [US1] Build the desktop approval screen for pending devices in `web/src/lib/PendingDevices.svelte`, per FR-010
-- [ ] T053 [US1] Implement free space checking before a transfer starts in `internal/transfer/space.go`, per FR-028
-- [ ] T054 [US1] Implement the constant-memory streaming engine in `internal/transfer/stream.go` using a fixed buffer, per FR-029
-- [ ] T055 [US1] Implement BLAKE2b checksumming during the copy in `internal/transfer/checksum.go`, per FR-032
-- [ ] T056 [US1] Implement destination filename sanitization and collision resolution in `internal/transfer/naming.go`, per FR-024 and FR-025
-- [ ] T057 [US1] Implement the staging-then-verify-then-move write path in `internal/transfer/writer.go`, per FR-033
+- [X] T053 [US1] Implement free space checking before a transfer starts in `internal/transfer/space.go`, per FR-028
+- [X] T054 [US1] Implement the constant-memory streaming engine in `internal/transfer/stream.go` using a fixed buffer, per FR-029
+- [X] T055 [US1] Implement BLAKE2b checksumming during the copy in `internal/transfer/checksum.go`, per FR-032
+- [X] T056 [US1] Implement destination filename sanitization and collision resolution in `internal/transfer/naming.go`, per FR-024 and FR-025
+- [X] T057 [US1] Implement the staging-then-verify-then-move write path in `internal/transfer/writer.go`, per FR-033
 - [ ] T058 [US1] Implement the transfer declaration endpoint in `internal/httpapi/transfer_handlers.go`
 - [ ] T059 [US1] Implement the downward content endpoint with range support in `internal/httpapi/content_download.go`
 - [ ] T060 [US1] Implement the transfer orchestration service in `internal/app/transfers.go`
