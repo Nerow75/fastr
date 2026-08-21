@@ -98,13 +98,24 @@ export class Sender {
       const response = await fetch(
         `/api/transfers/${encodeURIComponent(transferId)}` +
           `/items/${itemIndex}/supply?offset=${offset}`,
-        { method: 'POST', body },
+        {
+          method: 'POST',
+          // The body is raw octets and is not sealed, but the request still
+          // authenticates like every other. Omitting this header made the
+          // server refuse every supply with a 401, and because the failure was
+          // swallowed below, the receiver simply waited out the rendezvous and
+          // its download was cancelled with nothing said. Nothing short of a
+          // browser test could see it.
+          headers: { Authorization: this.session.authorization() },
+          body,
+        },
       );
 
       if (!response.ok) {
         // The receiver went away, or asked for a different offset. Either way
         // the next demand carries the correct one, so there is nothing to fix
         // here beyond not retrying blindly.
+        console.warn(`supply refused for ${key}: ${response.status}`);
         return;
       }
     } finally {
@@ -132,7 +143,11 @@ export class Sender {
 
   /** Stops a transfer from this side. */
   async cancel(transferId: string): Promise<void> {
-    await this.session.request('POST', `/api/transfers/${encodeURIComponent(transferId)}/cancel`, {});
+    await this.session.request(
+      'POST',
+      `/api/transfers/${encodeURIComponent(transferId)}/cancel`,
+      {},
+    );
     this.release(transferId);
   }
 }

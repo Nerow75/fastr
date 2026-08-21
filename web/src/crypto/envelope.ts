@@ -80,11 +80,24 @@ export class Envelope {
   private recvHighWater = 0n;
   private seenAny = false;
 
-  constructor(key: Uint8Array, sendDirection: number = ClientToServer) {
+  /**
+   * `startCounter` is where this envelope's send counter resumes from.
+   *
+   * It exists because a page reload builds a new Envelope while the server
+   * keeps the counter it last accepted for this device. Starting again at zero
+   * makes every request look like a replay, and the session is refused until
+   * the server process restarts. The caller reserves a range that no earlier
+   * page has used; see `Session` in lib/session.ts.
+   */
+  constructor(key: Uint8Array, sendDirection: number = ClientToServer, startCounter = 0n) {
     if (key.length !== KEY_SIZE) {
       throw new Error(`session key must be ${KEY_SIZE} bytes, got ${key.length}`);
     }
+    if (startCounter < 0n) {
+      throw new Error('start counter must not be negative');
+    }
     this.key = key;
+    this.sendCounter = startCounter;
     this.sendDirection = sendDirection;
     this.recvDirection = sendDirection === ServerToClient ? ClientToServer : ServerToClient;
   }
@@ -111,11 +124,10 @@ export class Envelope {
       throw new AuthenticationError();
     }
 
-    const counter = new DataView(
-      sealed.buffer,
-      sealed.byteOffset,
-      sealed.byteLength,
-    ).getBigUint64(0, false);
+    const counter = new DataView(sealed.buffer, sealed.byteOffset, sealed.byteLength).getBigUint64(
+      0,
+      false,
+    );
 
     // Strictly increasing. Counters start at 1, so zero is malformed.
     if (counter === 0n) throw new AuthenticationError();

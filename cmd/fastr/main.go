@@ -128,6 +128,13 @@ func run(args []string) error {
 	sessions := pairing.NewSessions(db)
 	pendings := pairing.NewPendings()
 
+	// This instance's own identifier. A phone stores it when it pairs and names
+	// it as the target of a transfer, so it must outlive a restart.
+	selfID, err := db.SelfDevice(settings.DeviceName, string(plat.OS()))
+	if err != nil {
+		return err
+	}
+
 	// The pipe joins a fetching receiver to a supplying sender. When a receiver
 	// starts waiting, the sender is told which item and from which offset, so a
 	// page that reconnects mid-transfer knows where to resume.
@@ -135,11 +142,21 @@ func run(args []string) error {
 	transfers := &app.Transfers{
 		Store:    db,
 		Pipes:    pipes,
+		Sinks:    transfer.NewSinks(),
 		Notify:   httpapi.NewNotifier(events),
 		Space:    transfer.PlatformChecker{Platform: plat},
 		Log:      log,
+		SelfID:   selfID,
+		Rules:    platform.Rules(),
 		ReceiveD: settings.ReceiveFolder,
 		StagingD: settings.StagingFolder,
+		// FR-036: a transfer that lands while every page is closed has no other
+		// way to be noticed.
+		Announce: &app.DesktopAnnouncer{
+			Bundle:   catalogues,
+			Language: settings.Language,
+			Log:      log,
+		},
 	}
 	pipes.OnDemand = func(key transfer.Key, offset uint64) {
 		events.Publish(httpapi.Event{
@@ -148,6 +165,12 @@ func run(args []string) error {
 			Payload:    map[string]any{"supply": key.ItemIndex, "offset": offset},
 		})
 	}
+
+	// Declared before the router and assigned after Start, because the
+	// invitation endpoint has to report addresses that do not exist until the
+	// listeners are bound. The closure reads it at call time, never at build
+	// time.
+	var server *httpapi.Server
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Log:        log,
@@ -161,14 +184,20 @@ func run(args []string) error {
 		Tickets:    tickets,
 		Transfers:  transfers,
 		DeviceName: settings.DeviceName,
-		DeviceID:   deviceIdentity(db, log),
+		DeviceID:   selfID,
+		Addresses: func() []string {
+			if server == nil {
+				return nil
+			}
+			return server.Addresses()
+		},
 		// Trusted mode has its own listener, which does not exist yet. Until
 		// it does, no request is trusted, and a device that requires trusted
 		// mode is refused with an explanation rather than quietly downgraded.
 		Trusted: func(*http.Request) bool { return false },
 	})
 
-	server := httpapi.New(httpapi.Options{Logger: log, Bundle: bundle, Router: router})
+	server = httpapi.New(httpapi.Options{Logger: log, Bundle: bundle, Router: router})
 
 	// FR-001: nothing has listened until this line.
 	if err := server.Start(settings.BoundInterfaces, portFor(settings, f)); err != nil {
@@ -231,27 +260,4 @@ func portFor(settings config.Settings, f flags) int {
 		return f.port
 	}
 	return settings.Port
-}
-
-// deviceIdentity returns this instance's stable identifier, minting one on
-// first run.
-//
-// It is stable across restarts and across address changes, which is what lets
-// a phone recognise the same computer after the router hands it a new address.
-func deviceIdentity(db *store.Store, log *slog.Logger) string {
-	const key = "self"
-
-	if dev, err := db.Device(key); err == nil && dev.ID != "" {
-		return dev.ID
-	}
-
-	id := store.NewID().String()
-	if err := db.PutDevice(store.Device{
-		ID:   key,
-		Name: id,
-		Kind: store.KindComputer,
-	}); err != nil {
-		log.Error("could not persist device identity", "error", err)
-	}
-	return id
 }

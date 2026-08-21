@@ -10,7 +10,9 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test:crypto": "tsx scripts/verify-crypto.ts"
+    "test:crypto": "tsx scripts/verify-crypto.ts",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test --grep @a11y --pass-with-no-tests"
   },
   "dependencies": {
     "@noble/ciphers": "^1.2.1",
@@ -19,6 +21,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
+    "@playwright/test": "^1.62.1",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tsconfig/svelte": "^5.0.4",
     "eslint": "^9.20.0",

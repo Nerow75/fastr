@@ -9,7 +9,7 @@ import (
 
 // schemaVersion is the layout this build understands. Bump it, and add a step
 // to migrations, whenever a stored shape changes incompatibly.
-const schemaVersion uint32 = 1
+const schemaVersion uint32 = 2
 
 var keySchemaVersion = []byte("schema_version")
 
@@ -19,10 +19,34 @@ type migration struct {
 	fn func(tx *bolt.Tx) error
 }
 
-// migrations are applied in order. Version 1 is the initial layout, so there is
-// nothing to apply yet; the machinery exists so the first real change is a
-// three-line addition rather than a redesign under pressure.
-var migrations []migration
+// migrations are applied in order. Version 1 is the initial layout.
+var migrations = []migration{
+	{to: 2, fn: dropReservedSelfDevice},
+}
+
+// dropReservedSelfDevice removes the device record an earlier build wrote under
+// the literal key "self".
+//
+// That build meant it as this instance's own record but returned a freshly
+// minted identifier on the run that created it and the string "self" on every
+// run after, so the identity a phone paired against on day one was not the one
+// the computer answered to on day two. The identifier now lives in the meta
+// bucket and the record is keyed by it; the old entry would otherwise linger in
+// the device list as a computer nobody can reach.
+func dropReservedSelfDevice(tx *bolt.Tx) error {
+	b := tx.Bucket(bucketDevices)
+	if b == nil {
+		return fmt.Errorf("missing bucket %s", bucketDevices)
+	}
+	if b.Get([]byte("self")) == nil {
+		return nil
+	}
+	if err := b.Delete([]byte("self")); err != nil {
+		return err
+	}
+	// A pairing keyed to it would be an authorization no interface lists.
+	return tx.Bucket(bucketPairings).Delete([]byte("self"))
+}
 
 // migrate brings the store up to schemaVersion.
 func (s *Store) migrate() error {

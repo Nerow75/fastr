@@ -77,6 +77,10 @@ const subscriberBuffer = 64
 type subscriber struct {
 	ch     chan Event
 	closed chan struct{}
+	// deviceID is who is listening. It is what lets the interface say whether a
+	// device can be reached right now, rather than offering as a destination
+	// something that has not been open in days.
+	deviceID string
 }
 
 // Events fans notifications out to connected clients.
@@ -145,8 +149,12 @@ func (e *Events) Publish(ev Event) {
 }
 
 // Subscribe registers a client and returns its channel plus an unsubscribe.
-func (e *Events) Subscribe() (<-chan Event, func()) {
-	s := &subscriber{ch: make(chan Event, subscriberBuffer), closed: make(chan struct{})}
+func (e *Events) Subscribe(deviceID string) (<-chan Event, func()) {
+	s := &subscriber{
+		ch:       make(chan Event, subscriberBuffer),
+		closed:   make(chan struct{}),
+		deviceID: deviceID,
+	}
 
 	e.mu.Lock()
 	e.subs[s] = struct{}{}
@@ -168,6 +176,29 @@ func (e *Events) Subscribers() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.subs)
+}
+
+// Connected reports whether a device is holding an event stream open.
+//
+// This is the honest answer to "can I send to it right now". A pairing lasts a
+// year, so the device list is full of phones that were connected once; offering
+// one of them as a destination, with nothing to say it is unreachable, is the
+// interface promising something it cannot do. FR-004's reachable indicator, and
+// the derived `reachable` field in data-model.md.
+func (e *Events) Connected(deviceID string) bool {
+	if deviceID == "" {
+		return false
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for s := range e.subs {
+		if s.deviceID == deviceID {
+			return true
+		}
+	}
+	return false
 }
 
 // heartbeat keeps intermediaries from closing an idle stream, and lets the
@@ -208,8 +239,18 @@ func (d Deps) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	events, unsubscribe := d.Events.Subscribe()
-	defer unsubscribe()
+	events, unsubscribe := d.Events.Subscribe(deviceID)
+
+	// Opening this stream is what makes a device reachable, and closing it is
+	// what makes it unreachable. Announcing both is what keeps every other
+	// page's device list true: without it the list is a snapshot taken when
+	// that page loaded, and it would go on offering as a destination a phone
+	// that was closed an hour ago.
+	d.Events.Publish(Event{Type: EventDeviceAppeared, DeviceID: deviceID})
+	defer func() {
+		unsubscribe()
+		d.Events.Publish(Event{Type: EventDeviceLost, DeviceID: deviceID})
+	}()
 
 	ticker := time.NewTicker(heartbeat)
 	defer ticker.Stop()

@@ -299,14 +299,17 @@ func sealForPending(sessionKey []byte, path, credential string) (string, error) 
 }
 
 type deviceView struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Platform   string    `json:"platform"`
-	Kind       string    `json:"kind"`
-	LastSeen   time.Time `json:"last_seen"`
-	Paired     bool      `json:"paired"`
-	TrustMode  string    `json:"trust_mode,omitempty"`
-	Protection string    `json:"protection,omitempty"`
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Platform string    `json:"platform"`
+	Kind     string    `json:"kind"`
+	LastSeen time.Time `json:"last_seen"`
+	Paired   bool      `json:"paired"`
+	// Connected reports whether the device is holding an event stream open, so
+	// the interface can say which devices can actually be sent to right now.
+	Connected  bool   `json:"connected"`
+	TrustMode  string `json:"trust_mode,omitempty"`
+	Protection string `json:"protection,omitempty"`
 }
 
 // handleDevices lists known devices with their pairing state.
@@ -322,6 +325,10 @@ func (d Deps) handleDevices(s *Session, w http.ResponseWriter, r *http.Request) 
 		view := deviceView{
 			ID: dev.ID, Name: dev.Name, Platform: dev.Platform,
 			Kind: string(dev.Kind), LastSeen: dev.LastSeen,
+			// Derived, never stored: a pairing lasts a year, so the list is
+			// full of devices that were connected once. Whether one can be
+			// reached now is whether it is holding a stream open.
+			Connected: d.Events.Connected(dev.ID),
 		}
 		if p, err := d.Store.Pairing(dev.ID); err == nil && !p.Revoked() {
 			view.Paired = true

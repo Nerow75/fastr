@@ -102,16 +102,41 @@ func TestPairedDeviceIsAccepted(t *testing.T) {
 	var out struct {
 		Devices []struct {
 			ID     string `json:"id"`
+			Kind   string `json:"kind"`
 			Paired bool   `json:"paired"`
 		} `json:"devices"`
 	}
 	d.open("GET", "/api/devices", resp, &out)
 
-	if len(out.Devices) != 1 {
-		t.Fatalf("got %d devices, want 1", len(out.Devices))
+	// Two: the phone that just paired, and this computer. The computer is in
+	// the list because a phone sending a file has to be able to name it as the
+	// target; it carries no pairing with itself, and never grants anything.
+	if len(out.Devices) != 2 {
+		t.Fatalf("got %d devices, want the phone and this computer", len(out.Devices))
 	}
-	if !out.Devices[0].Paired {
-		t.Error("the paired device is not reported as paired")
+
+	var phone, self bool
+	for _, dev := range out.Devices {
+		switch dev.ID {
+		case d.ID:
+			phone = true
+			if !dev.Paired {
+				t.Error("the paired device is not reported as paired")
+			}
+		case h.selfID:
+			self = true
+			if dev.Kind != "computer" {
+				t.Errorf("this instance reports itself as %q", dev.Kind)
+			}
+			if dev.Paired {
+				t.Error("this instance reports a pairing with itself")
+			}
+		default:
+			t.Errorf("unexpected device %q", dev.ID)
+		}
+	}
+	if !phone || !self {
+		t.Errorf("phone listed = %v, computer listed = %v", phone, self)
 	}
 }
 

@@ -30,6 +30,17 @@
   );
 
   let finished = $derived(['completed', 'failed', 'cancelled'].includes(transfer.state));
+
+  /**
+   * Whether this page can still fetch the content.
+   *
+   * Saving is offered from the moment the transfer is queued, not once it has
+   * completed. The transfer completes *because* of this download: the sending
+   * page holds the file and only ever supplies it in answer to the receiver
+   * fetching (see internal/transfer/pipe.go). Gating the button on completion
+   * made the two wait for each other, and nothing ever arrived.
+   */
+  let canSave = $derived(!sending && transfer.state !== 'failed' && transfer.state !== 'cancelled');
   let saveHref = $state<string | null>(null);
   let savingItem = $state(0);
 
@@ -77,13 +88,15 @@
       </button>
       {#if sending}
         <span class="hint">{t('transfer.keep_tab_open')}</span>
-      {:else}
-        <span class="hint">{t('transfer.waiting_for_sender')}</span>
       {/if}
-    {:else if transfer.state === 'completed' && !sending}
+    {/if}
+
+    {#if canSave}
       {#each transfer.items as item (item.index)}
         {#if saveHref !== null && savingItem === item.index}
-          <!-- A real link, so the browser's download manager takes over. -->
+          <!-- A real link, so the browser's download manager takes over. It is
+               the only thing that writes a multi-gigabyte file to a phone
+               without holding it in memory. -->
           <a class="save" href={saveHref} download={item.stored_name}>
             {t('transfer.save')} · {item.stored_name}
           </a>

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/Nerow75/fastr/internal/platform"
 	"github.com/Nerow75/fastr/internal/store"
 	"github.com/Nerow75/fastr/internal/transfer"
 )
@@ -27,15 +29,67 @@ type SpaceChecker interface {
 	FreeSpace(path string) (uint64, error)
 }
 
+// Announcer shows a native notification on this machine, for the moments the
+// browser cannot reach: a transfer finishing while no page is open. Optional.
+type Announcer interface {
+	NotifyReceived(itemCount int, firstName, folder string)
+}
+
 // Transfers is the transfer service.
 type Transfers struct {
-	Store    *store.Store
-	Pipes    *transfer.Pipes
-	Notify   Notifier
-	Space    SpaceChecker
-	Log      *slog.Logger
+	Store *store.Store
+	Pipes *transfer.Pipes
+	// Sinks holds the open staging files of incoming transfers. Only an upward
+	// transfer uses them; the pipe never touches disk.
+	Sinks  *transfer.Sinks
+	Notify Notifier
+	Space  SpaceChecker
+	Log    *slog.Logger
+
+	// SelfID is this instance's device identifier. A transfer aimed at it is
+	// incoming and is written here, rather than piped to a third device.
+	SelfID string
+	// Rules is the destination's filename rule set. It is this machine's,
+	// because FR-024 makes sanitization the receiver's decision: a phone has no
+	// business deciding what a Windows disk will accept.
+	Rules platform.FilenameRules
+
+	// ReceiveD and StagingD are the folders at construction. After that they are
+	// read through folders() and changed through SetFolders, because the user
+	// can move the receive folder while the process runs.
 	ReceiveD string
 	StagingD string
+
+	Announce Announcer
+
+	foldersMu sync.RWMutex
+	receiveD  string
+	stagingD  string
+	folderSet bool
+}
+
+// SetFolders changes where incoming files are written and staged.
+//
+// It affects transfers declared after it. FR-023 scenario 5: files already
+// received stay where they are, and a transfer already running keeps writing to
+// the path it resolved when it started, because moving a partial file out from
+// under an open descriptor is how a resume ends up writing to nowhere.
+func (t *Transfers) SetFolders(receive, staging string) {
+	t.foldersMu.Lock()
+	defer t.foldersMu.Unlock()
+
+	t.receiveD, t.stagingD, t.folderSet = receive, staging, true
+}
+
+// folders returns the current destination and staging directories.
+func (t *Transfers) folders() (receive, staging string) {
+	t.foldersMu.RLock()
+	defer t.foldersMu.RUnlock()
+
+	if t.folderSet {
+		return t.receiveD, t.stagingD
+	}
+	return t.ReceiveD, t.StagingD
 }
 
 // Declaration is what a sender proposes.
@@ -67,6 +121,12 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		return store.Transfer{}, New(CodeInvalidRequest)
 	}
 
+	// A transfer aimed at this machine is written here. Everything else is
+	// piped between two browsers and never touches this disk, which is why the
+	// destination naming below applies only to the incoming case.
+	incoming := t.SelfID != "" && d.TargetDeviceID == t.SelfID
+	receive, _ := t.folders()
+
 	var total uint64
 	items := make([]store.TransferItem, 0, len(d.Items))
 	for _, item := range d.Items {
@@ -79,17 +139,31 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		}
 		total += item.Size
 
-		items = append(items, store.TransferItem{
+		stored := store.TransferItem{
 			OriginalName: item.Name,
 			StoredName:   item.Name,
 			RelativePath: item.RelativePath,
 			Size:         item.Size,
 			State:        store.StateQueued,
-		})
+		}
+
+		if incoming {
+			// Resolved now so the sender learns straight away that its name had
+			// to change, per FR-024, and so a name that cannot be placed at all
+			// is refused before any byte moves. It is resolved again at
+			// completion, because a collision can appear in between.
+			res, err := transfer.Resolve(receive, item.RelativePath, item.Name, t.Rules)
+			if err != nil {
+				return store.Transfer{}, Errorf(CodeInvalidPath, err)
+			}
+			stored.StoredName = res.StoredName
+		}
+
+		items = append(items, stored)
 	}
 
 	if t.Space != nil {
-		if err := transfer.CheckSpace(t.Space, t.ReceiveD, total); err != nil {
+		if err := transfer.CheckSpace(t.Space, receive, total); err != nil {
 			var short *transfer.ErrInsufficientSpace
 			if errors.As(err, &short) {
 				return store.Transfer{}, Errorf(CodeInsufficientSpace, err).
@@ -100,9 +174,14 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		}
 	}
 
+	direction := store.DirectionOutgoing
+	if incoming {
+		direction = store.DirectionIncoming
+	}
+
 	tr := store.Transfer{
 		ID:             store.NewID(),
-		Direction:      store.DirectionOutgoing,
+		Direction:      direction,
 		SourceDeviceID: sourceDeviceID,
 		TargetDeviceID: d.TargetDeviceID,
 		ProtectionMode: store.ProtectionSimple,
@@ -239,9 +318,24 @@ func (t *Transfers) Complete(id store.ID, index int) error {
 		t.Log.Error("record history", "transfer_id", id.String(), "error", err)
 	}
 
+	t.announceReceived(finished)
+
 	t.publish("transfer_completed", finished, nil)
 	t.Log.Info("transfer completed", "transfer_id", id.String(), "bytes", finished.TotalBytes)
 	return nil
+}
+
+// announceReceived tells the desktop that files landed.
+//
+// Only for an incoming transfer, and only natively: an outgoing one finished
+// because the user was watching a page, and saying so twice is noise. The
+// receiving case is the one where nobody is necessarily looking.
+func (t *Transfers) announceReceived(tr store.Transfer) {
+	if t.Announce == nil || !t.Incoming(tr) || len(tr.Items) == 0 {
+		return
+	}
+	receive, _ := t.folders()
+	t.Announce.NotifyReceived(len(tr.Items), tr.Items[0].StoredName, receive)
 }
 
 // Fail ends a transfer with a cause, records history, and releases the slot.
@@ -255,6 +349,7 @@ func (t *Transfers) Fail(id store.ID, cause store.FailureCause) {
 
 	tr, _ := t.Store.Transfer(id)
 	if tr.ID != "" {
+		t.discardStaging(tr)
 		if err := t.Store.RecordHistory(tr, t.peerName(tr)); err != nil {
 			t.Log.Error("record history", "transfer_id", id.String(), "error", err)
 		}
@@ -279,6 +374,7 @@ func (t *Transfers) Cancel(id store.ID) error {
 	for index := range tr.Items {
 		t.Pipes.Cancel(transfer.Key{TransferID: id.String(), ItemIndex: index})
 	}
+	t.discardStaging(tr)
 
 	if err := t.Store.SetTransferState(id, store.StateCancelled, ""); err != nil {
 		return Errorf(CodeInternal, err)

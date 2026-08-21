@@ -92,6 +92,23 @@ func (s *StagedFile) Write(p []byte) (int, error) { return s.file.Write(p) }
 // only that the kernel intends to write them eventually.
 func (s *StagedFile) Sync() error { return s.file.Sync() }
 
+// Truncate cuts the staging file back to n bytes.
+//
+// Used when the file holds more than was ever acknowledged to the sender, which
+// happens when a process dies between a write and its fsync. Those bytes were
+// never promised, so dropping them is what keeps the file and the resume point
+// describing the same thing.
+func (s *StagedFile) Truncate(n uint64) error {
+	//nolint:gosec // a staged length is bounded by the declared file size
+	if err := s.file.Truncate(int64(n)); err != nil {
+		return fmt.Errorf("truncate staging file: %w", err)
+	}
+	if _, err := s.file.Seek(int64(n), io.SeekStart); err != nil { //nolint:gosec // same bound
+		return fmt.Errorf("seek staging file: %w", err)
+	}
+	return nil
+}
+
 // Close releases the file without moving it. Safe to call twice.
 func (s *StagedFile) Close() error {
 	if s.closed {

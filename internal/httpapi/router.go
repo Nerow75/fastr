@@ -31,6 +31,10 @@ type Deps struct {
 	// DeviceName and DeviceID identify this instance to peers.
 	DeviceName string
 	DeviceID   string
+	// Addresses reports where this instance is reachable. It is a function
+	// because the listeners are bound after the router is built, and because
+	// an interface can come and go while the process runs.
+	Addresses func() []string
 	// Trusted reports whether a request arrived on the trusted listener. It is
 	// a function so the server can answer per connection rather than globally.
 	Trusted func(*http.Request) bool
@@ -57,6 +61,12 @@ func NewRouter(d Deps) http.Handler {
 	// the same trust boundary the operating system already enforces and exactly
 	// what "a human on the receiving device" means. They deliberately do not
 	// require a pairing, because on first run the host's own page has none.
+	// The invitation carries a live pairing code, which is the one secret that
+	// turns a stranger on the same network into a paired device. Loopback only.
+	// The host's own page, which is the machine rather than a peer asking to be
+	// let in. Loopback is the same boundary approval already rests on.
+	mux.Handle("POST /api/pair/host", loopbackOnly(d, d.handleHostSession))
+	mux.Handle("GET /api/pair/invitation", loopbackOnly(d, d.handleInvitation))
 	mux.Handle("GET /api/pair/pending", loopbackOnly(d, d.handlePendingList))
 	mux.Handle("POST /api/pair/pending/{id}/approve", loopbackOnly(d, d.handlePendingApprove))
 	mux.Handle("POST /api/pair/pending/{id}/reject", loopbackOnly(d, d.handlePendingReject))
@@ -72,6 +82,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/transfers/{id}", d.authenticated(d.handleGetTransfer))
 	mux.Handle("POST /api/transfers/{id}/cancel", d.authenticated(d.handleCancelTransfer))
 	mux.Handle("GET /api/transfers/{id}/waiting", d.authenticated(d.handlePendingSupply))
+	mux.Handle("GET /api/transfers/{id}/items/{index}/offset", d.authenticated(d.handleItemOffset))
 	mux.Handle("POST /api/transfers/{id}/items/{index}/complete", d.authenticated(d.handleCompleteItem))
 
 	// Bulk content. Not sealed in simple mode: constitution v2.0.1 is explicit
@@ -83,6 +94,9 @@ func NewRouter(d Deps) http.Handler {
 	// download is performed by the browser's own manager, which cannot set one.
 	mux.HandleFunc("GET /api/transfers/{id}/items/{index}/content", d.handleFetchContentTicketed)
 	mux.Handle("POST /api/transfers/{id}/items/{index}/supply", d.streaming(d.handleSupplyContent))
+	// The phone pushing a file to this computer. Same path as the download, a
+	// different method: one streams out of the pipe, the other into a file.
+	mux.Handle("POST /api/transfers/{id}/items/{index}/content", d.streaming(d.handleUploadContent))
 	// The stream authenticates with a single-use ticket rather than a bearer
 	// header, because EventSource cannot set one. See tickets.go.
 	mux.HandleFunc("GET /api/events", d.handleEvents)

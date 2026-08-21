@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -247,44 +246,6 @@ func (d Deps) handlePendingSupply(s *Session, w http.ResponseWriter, r *http.Req
 	}
 
 	s.writeJSON(w, r, http.StatusOK, map[string]any{"waiting": out})
-}
-
-// handleCompleteItem records the sender's checksum and finishes the item.
-func (d Deps) handleCompleteItem(s *Session, w http.ResponseWriter, r *http.Request) {
-	tr, ok := d.participantTransfer(s, w, r)
-	if !ok {
-		return
-	}
-
-	index, _, ok := d.itemOf(tr, w, r)
-	if !ok {
-		return
-	}
-
-	var req struct {
-		Checksum string `json:"checksum"`
-	}
-	if len(s.Body) > 0 {
-		if err := json.Unmarshal(s.Body, &req); err != nil {
-			d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
-			return
-		}
-	}
-
-	if req.Checksum != "" {
-		digest, err := base64.StdEncoding.DecodeString(req.Checksum)
-		if err != nil {
-			d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
-			return
-		}
-		tr.Items[index].Checksum = digest
-		if err := d.Store.PutTransfer(tr); err != nil {
-			d.writeError(w, r, app.Errorf(app.CodeInternal, err))
-			return
-		}
-	}
-
-	s.writeJSON(w, r, http.StatusOK, map[string]any{"item": index})
 }
 
 // participantTransfer loads the transfer and checks the caller is a party to it.

@@ -17,6 +17,8 @@
     name: string;
     kind: string;
     paired: boolean;
+    /** Whether the device is holding an event stream open right now. */
+    connected?: boolean;
   }
 
   interface Props {
@@ -40,10 +42,20 @@
   let totalBytes = $derived(files.reduce((sum, f) => sum + f.size, 0));
   let ready = $derived(files.length > 0 && target !== '' && !busy);
 
-  // Pick the only paired device automatically. With one phone, which is the
-  // common case, choosing a target is not a decision worth asking for.
+  // A pairing lasts a year, so this list keeps every phone ever connected. The
+  // one being sent to has to have its page open, because the bytes go from this
+  // tab to that one; saying so beats a transfer that sits at nothing and never
+  // explains itself.
+  let chosen = $derived(targets.find((d) => d.id === target));
+  let unreachable = $derived(chosen !== undefined && chosen.connected === false);
+
+  // Prefer the only reachable device. Falling back to the only paired one keeps
+  // the common single-phone case working while it is still connecting.
   $effect(() => {
-    if (target === '' && targets.length === 1) target = targets[0].id;
+    if (target !== '') return;
+    const reachable = targets.filter((d) => d.connected);
+    if (reachable.length === 1) target = reachable[0].id;
+    else if (targets.length === 1) target = targets[0].id;
   });
 
   function onDrop(event: DragEvent): void {
@@ -96,9 +108,14 @@
       <label for="send-target">{t('transfer.to')}</label>
       <select id="send-target" bind:value={target}>
         {#each targets as device (device.id)}
-          <option value={device.id}>{device.name}</option>
+          <option value={device.id}>
+            {device.connected ? device.name : t('device.offline_option', { name: device.name })}
+          </option>
         {/each}
       </select>
+      {#if unreachable}
+        <p class="warning" role="status">{t('device.offline_hint')}</p>
+      {/if}
     </div>
 
     <!--
@@ -293,6 +310,12 @@
   .note {
     margin: 0.5rem 0 0;
     color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  .warning {
+    margin: 0.35rem 0 0;
+    color: var(--danger);
     font-size: 0.875rem;
   }
 </style>

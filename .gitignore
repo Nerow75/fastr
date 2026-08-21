@@ -34,6 +34,12 @@ __pycache__/
 coverage/
 *.lcov
 .nyc_output/
+# Browser test output: traces and screenshots of failures, regenerated on every
+# run. A trace also records request URLs, which carry download tickets.
+web/test-results/
+web/playwright-report/
+web/blob-report/
+.playwright/
 
 # --- Large fixtures used in transfer tests --------------------------------------
 # Big files are generated locally, never committed.

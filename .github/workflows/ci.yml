@@ -51,6 +51,57 @@ jobs:
       - name: Network boundary gate
         run: go test -count=1 -run 'NetworkBoundary' ./...
 
+  # Constitution Principle II: no essential capability may depend on something
+  # iOS Safari lacks. WebKit is the closest thing to Safari that runs
+  # unattended, and this is the only place both browsers are available: its
+  # Playwright build is Ubuntu-only and will not launch on Fedora or Arch, so a
+  # developer runs Chromium and the gate lives here.
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Install browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium webkit
+
+      # The tests drive the real binary, so it has to exist and to embed the
+      # bundle the tests are about to click on.
+      - name: Build
+        run: make build
+
+      - name: Browser tests
+        working-directory: web
+        run: npm run test:e2e
+
+      - name: Accessibility gate
+        working-directory: web
+        run: npm run test:a11y
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: web/test-results/
+          retention-days: 7
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

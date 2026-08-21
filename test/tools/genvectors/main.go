@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/Nerow75/fastr/internal/pairing"
+	"github.com/Nerow75/fastr/internal/transfer"
 )
 
 type vector struct {
@@ -39,12 +40,27 @@ type envelopeVector struct {
 	Sealed    string `json:"sealed"`
 }
 
+// checksumVector pins the integrity digest across the two implementations.
+//
+// The phone computes it while reading the file and the computer computes it
+// while writing, and a mismatch fails the transfer (FR-032). If the two
+// implementations disagreed, every upload from a real phone would fail its
+// verification with nothing to point at. Chunks are fed in order, because that
+// is how web/src/lib/upload.ts feeds it: the incremental digest must equal the
+// one-shot digest of the same bytes.
+type checksumVector struct {
+	Name   string   `json:"name"`
+	Chunks []string `json:"chunks"`
+	Digest string   `json:"digest"`
+}
+
 func main() {
 	b64 := base64.StdEncoding.EncodeToString
 
 	out := struct {
 		Handshakes []vector         `json:"handshakes"`
 		Envelopes  []envelopeVector `json:"envelopes"`
+		Checksums  []checksumVector `json:"checksums"`
 	}{}
 
 	// Fixed keys, so the vectors are reproducible.
@@ -98,10 +114,51 @@ func main() {
 		})
 	}
 
+	checksumCases := []struct {
+		name   string
+		chunks [][]byte
+	}{
+		{"empty file", [][]byte{}},
+		{"one short chunk", [][]byte{[]byte("hello fastr")}},
+		{"several chunks", [][]byte{[]byte("one"), []byte("two"), []byte("three")}},
+		// A chunk of exactly one BLAKE2b block, so an off-by-one in either
+		// implementation's buffering shows up rather than hiding.
+		{"block boundary", [][]byte{ramp(128), ramp(128)}},
+		{"every byte value", [][]byte{ramp(256)}},
+		// What a resumed upload does: a prefix rehashed, then the rest.
+		{"uneven chunks", [][]byte{ramp(1), ramp(200), ramp(31), ramp(4096)}},
+	}
+
+	for _, c := range checksumCases {
+		h, err := transfer.NewHasher()
+		must(err)
+
+		encoded := make([]string, 0, len(c.chunks))
+		for _, chunk := range c.chunks {
+			_, err := h.Write(chunk)
+			must(err)
+			encoded = append(encoded, b64(chunk))
+		}
+
+		out.Checksums = append(out.Checksums, checksumVector{
+			Name: c.name, Chunks: encoded, Digest: b64(h.Sum(nil)),
+		})
+	}
+
 	data, err := json.MarshalIndent(out, "", "  ")
 	must(err)
 	must(os.WriteFile("test/testdata/crypto-vectors.json", append(data, '\n'), 0o644))
 	fmt.Println("wrote test/testdata/crypto-vectors.json")
+}
+
+// ramp returns n bytes cycling through every value, so a vector exercises the
+// whole byte range rather than printable ASCII.
+func ramp(n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = byte(i)
+	}
+	return out
 }
 
 func fixed(seed byte) []byte {

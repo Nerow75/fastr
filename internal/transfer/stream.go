@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"sync"
 	"time"
@@ -136,10 +137,7 @@ func Copy(
 // BLAKE2b rather than SHA-256: it is faster without hardware acceleration,
 // which is exactly the phone case, and it is in golang.org/x/crypto, which the
 // project already depends on.
-func NewHasher() (interface {
-	io.Writer
-	Sum([]byte) []byte
-}, error) {
+func NewHasher() (hash.Hash, error) {
 	h, err := blake2b.New256(nil)
 	if err != nil {
 		return nil, fmt.Errorf("build hasher: %w", err)

@@ -13,10 +13,13 @@
   import { installLiveRegions, focusView } from '../lib/a11y.js';
   import { t, negotiate, setLanguage, formatApiError } from '../lib/i18n.js';
   import { Sender, type Transfer } from '../lib/transfers.js';
+  import { Uploader } from '../lib/upload.js';
   import PairingScreen from '../lib/PairingScreen.svelte';
+  import ConnectionInvitation from '../lib/ConnectionInvitation.svelte';
   import PendingDevices from '../lib/PendingDevices.svelte';
   import ProtectionNotice from '../lib/ProtectionNotice.svelte';
   import SendPanel from '../lib/SendPanel.svelte';
+  import MobilePicker from '../lib/MobilePicker.svelte';
   import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -41,21 +44,73 @@
   let devices = $state<Device[]>([]);
   let transfers = $state<Transfer[]>([]);
   let sender = $state<Sender | null>(null);
+  let uploader = $state<Uploader | null>(null);
+
+  // The computer serving this page. A phone sending a file has to name it as
+  // the target, and /connect is where it learns the identifier: it is
+  // unauthenticated by design and carries nothing the mDNS record does not
+  // already broadcast.
+  let host = $state<{ name: string; device_id: string }>({ name: '', device_id: '' });
 
   const desktop = isDesktop();
   let stream: EventStream | null = null;
+
+  // Everything except this device. The computer now holds a session of its own,
+  // so it appears in its own device list; offering it as a destination would be
+  // offering to send a file to itself, which the server refuses anyway.
+  let peers = $derived(devices.filter((d) => d.id !== session?.deviceId));
+  let hasPairedPeer = $derived(peers.some((d) => d.paired));
 
   onMount(() => {
     installLiveRegions();
     setLanguage(negotiate(localStorage.getItem('fastr.language')));
 
+    if (!desktop) void loadHost();
+
     session = Session.restore();
     if (session) {
-      sender = new Sender(session);
-      openStream(session);
-      void loadDevices(session);
+      begin(session);
+      return;
     }
+
+    // The computer's own page is the machine, not a device asking to be let in,
+    // so it is granted a session rather than made to type a code at itself.
+    // A phone still pairs, which is what the code and the QR are for.
+    if (desktop) void adoptHostSession();
   });
+
+  async function adoptHostSession(): Promise<void> {
+    try {
+      begin(await Session.adoptHost());
+    } catch (failure) {
+      onPairingError(failure);
+    }
+  }
+
+  function begin(active: Session): void {
+    session = active;
+    startClients(active);
+    openStream(active);
+    void loadDevices(active);
+  }
+
+  function startClients(active: Session): void {
+    // Two clients, because the two directions are genuinely different
+    // mechanisms rather than one with a flag. The desktop holds files and
+    // supplies them into a pipe; the phone pushes chunks to a file. See
+    // internal/transfer/pipe.go and web/src/lib/upload.ts.
+    sender = new Sender(active);
+    uploader = new Uploader(active);
+  }
+
+  async function loadHost(): Promise<void> {
+    try {
+      const reply = await fetch('/connect');
+      if (reply.ok) host = (await reply.json()) as { name: string; device_id: string };
+    } catch {
+      // Unreachable means the page is already broken in more visible ways.
+    }
+  }
 
   onDestroy(() => stream?.stop());
 
@@ -87,9 +142,7 @@
       const updated = await session.request<Transfer>('GET', `/api/transfers/${id}`);
       const index = transfers.findIndex((tr) => tr.id === id);
       transfers =
-        index >= 0
-          ? transfers.map((tr) => (tr.id === id ? updated : tr))
-          : [updated, ...transfers];
+        index >= 0 ? transfers.map((tr) => (tr.id === id ? updated : tr)) : [updated, ...transfers];
     } catch {
       // Gone, or not ours. Neither is worth an error banner.
     }
@@ -118,6 +171,13 @@
   function handleEvent(event: ServerEvent): void {
     if (event.type === 'pairing_pending') {
       pendingRevision += 1;
+      return;
+    }
+
+    // A device opened or closed its page, which changes whether it can be sent
+    // to. The list is otherwise a snapshot from when this page loaded.
+    if (event.type === 'device_appeared' || event.type === 'device_lost') {
+      if (session) void loadDevices(session);
       return;
     }
 
@@ -150,7 +210,7 @@
 
   async function onPaired(newSession: Session): Promise<void> {
     session = newSession;
-    sender = new Sender(newSession);
+    startClients(newSession);
     error = null;
     openStream(newSession);
     void loadDevices(newSession);
@@ -202,17 +262,31 @@
     <p class="error" role="alert">{error}</p>
   {/if}
 
-  <!--
-    The host's approval prompt sits above everything, paired or not: on first
-    run the computer's own page has no pairing of its own, and a device waiting
-    to be let in still needs an answer. It renders nothing when nothing waits.
-  -->
   {#if desktop}
+    <!--
+      FR-002: the address and the QR that encodes it, with the code to type on
+      the phone. Expanded until a phone is actually connected, because until
+      then it is the only thing on this screen worth doing.
+
+      Above the approval prompt because it comes first in time — a device has to
+      be invited before there is anything to approve.
+    -->
+    <ConnectionInvitation expanded={!hasPairedPeer} onerror={onPairingError} />
+    <!--
+      A device waiting to be let in still needs an answer, and it renders
+      nothing when nothing waits.
+    -->
     <PendingDevices revision={pendingRevision} />
   {/if}
 
   {#if !session}
-    <PairingScreen {desktop} onpaired={onPaired} onerror={onPairingError} />
+    <!--
+      Only a phone ever gets here. The computer's page is granted its session on
+      load, because it is the machine rather than a device asking to be let in.
+    -->
+    {#if !desktop}
+      <PairingScreen {desktop} onpaired={onPaired} onerror={onPairingError} />
+    {/if}
   {:else}
     <!--
       Constitution v2.0.1, Principle V: the interface must never claim a
@@ -222,10 +296,23 @@
     -->
     <ProtectionNotice mode="simple" />
 
-    {#if sender}
+    <!--
+      The desktop drops files into a pipe; the phone pushes them to a file.
+      Which panel appears follows from which device this is, not from a
+      preference, because only one of the two mechanisms works on each.
+    -->
+    {#if desktop && sender}
       <SendPanel
-        {devices}
+        devices={peers}
         {sender}
+        onsent={(transfer) => (transfers = [transfer, ...transfers])}
+        onerror={onPairingError}
+      />
+    {:else if !desktop && uploader}
+      <MobilePicker
+        targetName={host.name}
+        targetDeviceId={host.device_id}
+        {uploader}
         onsent={(transfer) => (transfers = [transfer, ...transfers])}
         onerror={onPairingError}
       />

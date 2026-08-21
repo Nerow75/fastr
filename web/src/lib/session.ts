@@ -14,6 +14,48 @@ import { derive, generateKeypair } from '../crypto/handshake.js';
 import type { ApiError } from './i18n.js';
 
 const STORAGE_KEY = 'fastr.session.v1';
+const COUNTER_KEY = 'fastr.counter.v1';
+
+/**
+ * How many envelope counters each page load claims for itself.
+ *
+ * The server refuses any counter it has already seen, and remembers the highest
+ * one per device for as long as it runs. A page that started again at zero after
+ * a reload therefore had every request rejected as a replay, and the session
+ * stayed dead until the server was restarted — a reload being, on a phone, one
+ * of the most ordinary things that can happen.
+ *
+ * So each load reserves a block up front rather than counting from zero. Two
+ * tabs get disjoint blocks because reserving is a read-then-write done once, at
+ * construction, rather than on every request. The counter is 64 bits wide: at a
+ * million per load this allows more page loads than the machine will ever see.
+ */
+const COUNTER_BLOCK = 1_000_000n;
+
+/**
+ * Claims the next block of counters and records where the following one starts.
+ *
+ * A failure to persist is not fatal. The block is still used, so this page
+ * works; only a later page could collide, and it would collide with a counter
+ * the server has already seen and refuse it, which is loud rather than silent.
+ */
+function reserveCounterBlock(): bigint {
+  let start = 0n;
+  try {
+    start = BigInt(localStorage.getItem(COUNTER_KEY) ?? '0');
+    if (start < 0n) start = 0n;
+  } catch {
+    start = 0n; // absent, or left unparseable by an older build
+  }
+
+  try {
+    localStorage.setItem(COUNTER_KEY, String(start + COUNTER_BLOCK));
+  } catch {
+    // Storage full or blocked. Better to run with a block that may repeat than
+    // to refuse to open the page.
+  }
+  return start;
+}
 
 interface StoredSession {
   credential: string;
@@ -38,12 +80,16 @@ export class ApiFailure extends Error {
 export class Session {
   private readonly credential: string;
   readonly deviceId: string;
-  private readonly envelope: Envelope;
+  private readonly key: Uint8Array;
+  private envelope: Envelope;
 
   private constructor(stored: StoredSession) {
     this.credential = stored.credential;
     this.deviceId = stored.deviceId;
-    this.envelope = new Envelope(fromBase64(stored.key), ClientToServer);
+    this.key = fromBase64(stored.key);
+    // Resumes past every counter an earlier page load could have used, rather
+    // than starting again at zero and being refused as a replay.
+    this.envelope = new Envelope(this.key, ClientToServer, reserveCounterBlock());
   }
 
   /** Restores a session from site data, or null when this device is unpaired. */
@@ -62,6 +108,32 @@ export class Session {
   /** Forgets the pairing on this device. */
   static clear(): void {
     localStorage.removeItem(STORAGE_KEY);
+  }
+
+  /**
+   * Takes the session the host grants its own page, with no code to type.
+   *
+   * The computer's page used to pair with itself: read six digits from its own
+   * screen, type them into its own form, approve its own request. Nobody found
+   * it, so sending *from* the computer was effectively unreachable.
+   *
+   * Only ever succeeds on loopback, which is the same boundary the approval
+   * endpoints rest on: being there means being on this machine. See
+   * internal/httpapi/host_session.go for why that is enough.
+   */
+  static async adoptHost(): Promise<Session> {
+    const granted = await postPlain<{ device_id: string; credential: string; key: string }>(
+      '/api/pair/host',
+      {},
+    );
+
+    const stored: StoredSession = {
+      credential: granted.credential,
+      deviceId: granted.device_id,
+      key: granted.key,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    return new Session(stored);
   }
 
   /**
@@ -128,8 +200,43 @@ export class Session {
     return new Session(stored);
   }
 
-  /** Sends a sealed request and returns the decrypted payload. */
+  /**
+   * The Authorization header value, for the bulk content routes.
+   *
+   * Those routes carry raw octets and are not sealed, so they cannot go through
+   * `request`, but they still authenticate the same way. The credential itself
+   * stays private: this hands out the header, not the secret, so no caller ends
+   * up storing or logging it separately.
+   */
+  authorization(): string {
+    return `Bearer ${this.credential}`;
+  }
+
+  /**
+   * Sends a sealed request and returns the decrypted payload.
+   *
+   * A refusal for a replayed counter is retried once, from a fresh block. The
+   * server keeps one high-water mark per device while every page keeps its own
+   * counter, so whichever page is behind — a reload, or a second tab that has
+   * been sitting idle while the first did work — has its counter refused
+   * through no fault of its own. Jumping past the other page's range recovers
+   * in one round trip, and the two leapfrog rather than deadlock.
+   *
+   * Nothing is weakened by this: the server still refuses every counter it has
+   * already seen, which is the property the replay check rests on.
+   */
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    try {
+      return await this.attempt<T>(method, path, body);
+    } catch (failure) {
+      if (!isReplay(failure)) throw failure;
+
+      this.envelope = new Envelope(this.key, ClientToServer, reserveCounterBlock());
+      return await this.attempt<T>(method, path, body);
+    }
+  }
+
+  private async attempt<T>(method: string, path: string, body?: unknown): Promise<T> {
     const init: RequestInit = {
       method,
       headers: { Authorization: `Bearer ${this.credential}` },
@@ -172,6 +279,11 @@ export class Session {
       throw err;
     }
   }
+}
+
+/** Whether a failure is the server refusing a counter it has already seen. */
+function isReplay(failure: unknown): boolean {
+  return failure instanceof ApiFailure && failure.body.error === 'replay_detected';
 }
 
 /** Sends an unsealed request, for the pairing endpoints, which by definition

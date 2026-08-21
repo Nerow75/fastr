@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Nerow75/fastr/internal/pairing"
+	"github.com/Nerow75/fastr/internal/transfer"
 )
 
 // The Go and TypeScript implementations of the handshake and the envelope must
@@ -44,6 +45,11 @@ type cryptoVectors struct {
 		Plaintext string `json:"plaintext"`
 		Sealed    string `json:"sealed"`
 	} `json:"envelopes"`
+	Checksums []struct {
+		Name   string   `json:"name"`
+		Chunks []string `json:"chunks"`
+		Digest string   `json:"digest"`
+	} `json:"checksums"`
 }
 
 func loadVectors(t *testing.T) cryptoVectors {
@@ -57,7 +63,7 @@ func loadVectors(t *testing.T) cryptoVectors {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		t.Fatalf("parse vectors: %v", err)
 	}
-	if len(v.Handshakes) == 0 || len(v.Envelopes) == 0 {
+	if len(v.Handshakes) == 0 || len(v.Envelopes) == 0 || len(v.Checksums) == 0 {
 		t.Fatal("the vector file is empty")
 	}
 	return v
@@ -132,6 +138,35 @@ func TestEnvelopeMatchesCommittedVectors(t *testing.T) {
 			}
 			if !bytes.Equal(opened, plaintext) {
 				t.Errorf("opened %q, want %q", opened, plaintext)
+			}
+		})
+	}
+}
+
+// The integrity digest, which is what makes a corrupted transfer fail rather
+// than succeed quietly (FR-032).
+//
+// It is checked chunk by chunk because that is how both sides feed it: the
+// phone hashes each chunk as it reads it, and the computer hashes each chunk as
+// it writes it. A one-shot digest agreeing proves less than this does.
+func TestChecksumMatchesCommittedVectors(t *testing.T) {
+	vectors := loadVectors(t)
+
+	for _, v := range vectors.Checksums {
+		t.Run(v.Name, func(t *testing.T) {
+			h, err := transfer.NewHasher()
+			if err != nil {
+				t.Fatalf("hasher: %v", err)
+			}
+			for _, chunk := range v.Chunks {
+				if _, err := h.Write(decode(t, chunk)); err != nil {
+					t.Fatalf("write chunk: %v", err)
+				}
+			}
+
+			got := base64.StdEncoding.EncodeToString(h.Sum(nil))
+			if got != v.Digest {
+				t.Errorf("digest = %s, want %s", got, v.Digest)
 			}
 		})
 	}

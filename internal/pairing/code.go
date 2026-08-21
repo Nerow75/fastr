@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // Pairing codes, per FR-012 and FR-013.
@@ -148,6 +150,25 @@ func (cs *Codes) Current() *Code {
 	return cs.current
 }
 
+// Ensure returns a code the host can display, issuing one only when the
+// current one can no longer authorize a pairing.
+//
+// Reusing a still-usable code matters: the host's screen is polled, and issuing
+// a fresh one on every poll would invalidate the digits the user is halfway
+// through typing on their phone. Issuing when the current one is spent is what
+// keeps the 3-minute expiry from being a dead end escapable only by restarting.
+func (cs *Codes) Ensure() (*Code, error) {
+	cs.mu.Lock()
+	if cs.current != nil && cs.current.Usable(cs.now()) {
+		defer cs.mu.Unlock()
+		return cs.current, nil
+	}
+	cs.mu.Unlock()
+
+	// Issue takes the lock itself, and retires the spent code as it goes.
+	return cs.Issue()
+}
+
 // Verify checks a submitted code and consumes it on success.
 //
 // The comparison is not constant time, and does not need to be: a wrong code
@@ -241,6 +262,18 @@ func randomID(r io.Reader) (string, error) {
 //
 // The credential itself is returned once, to be handed to the paired device.
 // Only the hash is stored, so a stolen store yields no working token.
+// NewSessionKey returns a fresh key for the sealed envelope.
+//
+// Used where there is no handshake to derive one from, which is the host's own
+// page: it is not a peer being let in, it is the machine itself.
+func NewSessionKey() ([]byte, error) {
+	key := make([]byte, chacha20poly1305.KeySize)
+	if _, err := io.ReadFull(rand.Reader, key); err != nil {
+		return nil, fmt.Errorf("generate session key: %w", err)
+	}
+	return key, nil
+}
+
 func NewCredential() (credential string, hash []byte, err error) {
 	var raw [32]byte
 	if _, err := io.ReadFull(rand.Reader, raw[:]); err != nil {

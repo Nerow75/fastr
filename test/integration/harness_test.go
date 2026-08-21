@@ -18,6 +18,7 @@ import (
 	"github.com/Nerow75/fastr/internal/app"
 	"github.com/Nerow75/fastr/internal/httpapi"
 	"github.com/Nerow75/fastr/internal/pairing"
+	"github.com/Nerow75/fastr/internal/platform"
 	"github.com/Nerow75/fastr/internal/store"
 	"github.com/Nerow75/fastr/internal/transfer"
 )
@@ -38,6 +39,11 @@ type harness struct {
 	transfers *app.Transfers
 	logs      *bytes.Buffer
 	scrubber  *app.Scrubber
+
+	// selfID is what a phone names as the target when it sends here.
+	selfID     string
+	receiveDir string
+	stagingDir string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -60,15 +66,27 @@ func newHarness(t *testing.T) *harness {
 	tickets := httpapi.NewTickets()
 	pendings := pairing.NewPendings()
 
+	// The instance's own identifier, minted the way the binary mints it. A
+	// transfer aimed at it is one this machine writes to disk.
+	selfID, err := st.SelfDevice("Test Computer", "linux")
+	if err != nil {
+		t.Fatalf("self device: %v", err)
+	}
+
+	receiveDir, stagingDir := t.TempDir(), t.TempDir()
+
 	pipes := transfer.NewPipes()
 	transfers := &app.Transfers{
 		Store:    st,
 		Pipes:    pipes,
+		Sinks:    transfer.NewSinks(),
 		Notify:   httpapi.NewNotifier(events),
 		Space:    fakeSpace(1 << 40),
 		Log:      logger,
-		ReceiveD: t.TempDir(),
-		StagingD: t.TempDir(),
+		SelfID:   selfID,
+		Rules:    platform.Rules(),
+		ReceiveD: receiveDir,
+		StagingD: stagingDir,
 	}
 
 	bundle := fstest.MapFS{
@@ -87,7 +105,7 @@ func newHarness(t *testing.T) *harness {
 		Tickets:    tickets,
 		Transfers:  transfers,
 		DeviceName: "Test Computer",
-		DeviceID:   "computer-1",
+		DeviceID:   selfID,
 		Trusted:    func(*http.Request) bool { return false },
 	})
 
@@ -98,6 +116,7 @@ func newHarness(t *testing.T) *harness {
 		t: t, server: srv, store: st, codes: codes,
 		sessions: sessions, events: events, tickets: tickets, pendings: pendings, pipes: pipes, transfers: transfers,
 		logs: logs, scrubber: scrubber,
+		selfID: selfID, receiveDir: receiveDir, stagingDir: stagingDir,
 	}
 }
 

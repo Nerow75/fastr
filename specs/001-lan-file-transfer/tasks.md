@@ -118,13 +118,18 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [X] T047a [P] [US1] Memory-flatness test at the engine level, comparing 1 MB and 512 MB through the same copy path, in `internal/transfer/transfer_test.go`. Runs in the normal suite.
 - [ ] T047b [P] [US1] The full 10 GB variant of SC-003, end to end through the HTTP path, in `test/integration/large_transfer_test.go` behind the `large` build tag. Needs the `make fixture` generator and a nightly CI job; the property is already proven at the engine level, this is the number the success criterion actually names.
 - [X] T048a [P] [US1] Path traversal rejection at the resolution level, in `internal/transfer/transfer_test.go`: nine hostile inputs against both platforms' rule sets, asserting nothing escapes the receive folder.
-- [ ] T048b [P] [US1] The same at the HTTP level, once a receive path exists to attack. Desktop-to-phone saves through the browser's download manager and never touches destination naming, so the attack surface this targets arrives with User Story 2.
-- [ ] T049 [P] [US1] End-to-end browser test of the QR-to-received-file journey in `test/e2e/us1_first_transfer.spec.ts`. Not started: needs Playwright installed with Chromium and WebKit, which is also what T140 and T141 depend on.
+- [X] T048b [P] [US1] The same at the HTTP level, in `test/integration/filename_rules_test.go` rather than a file of its own, because the surface it attacks arrived with User Story 2 and the hostile inputs share that file's helpers. Nine name-and-relative-path pairs are declared, uploaded, and completed through the real endpoints; each must either be refused at declaration or land inside the receive folder, and a sibling directory is asserted empty either way.
+- [X] T049 [P] [US1] End-to-end browser test of the QR-to-received-file journey, in `web/tests/e2e/us1_first_transfer.spec.ts`. It drives the real binary through two browser contexts — loopback is the computer, the machine's own LAN address is the phone — and covers the whole journey: the invitation panel's address and QR, pairing the computer's own browser, a fresh code for the phone, a 6 MB file dropped on the desktop, and the phone's download manager writing it out byte for byte. A second case asserts an unpaired phone is offered the pairing form and nothing else, least of all the pairing code.
 
 ### Implementation for User Story 1
 
 - [X] T050 [P] [US1] Implement connection info and QR code generation in `internal/httpapi/connect.go`
 - [X] T051 [P] [US1] Build the pairing screen with code entry in `web/src/lib/PairingScreen.svelte`
+- [X] T050b [US1] Serve the host's invitation — the live pairing code, the reachable addresses, and the URL to encode — from `internal/httpapi/invitation.go`, restricted to loopback. **FR-002 is not met without this.** T050 generates a QR from a URL the caller supplies, and T051 accepts a typed code, but nothing tells the desktop page which URL to encode or which code to display: the code only ever reaches standard output. Issuing on demand also removes the dead end where the 3-minute expiry can be escaped only by restarting the binary.
+- [X] T051c [US1] Grant the host's own page a session over loopback, in `internal/httpapi/host_session.go` and `web/src/lib/session.ts`, removing the step where the computer paired with itself. Found by running the application: a user who scanned the QR paired their phone, saw the computer's screen unchanged, and had no way to guess the page was waiting to be told about itself — so sending *from* the computer was unreachable. **This is a change to the pairing model and is deliberate.** Principle V accepts "a one-time code **or** a confirmation on the host device", and reaching loopback is what being on the host device means; it is the same boundary `/api/pair/pending/{id}/approve` already rests on. The honest cost: a local process can now obtain a credential without knowing a code, which it could not before. It gains little — a process running as this user can already read every file fastr could send, and write into the receive folder — but the trade is real and is recorded here rather than buried. `test/integration/host_session_test.go` pins the loopback restriction, including that a paired device holding a valid credential is still refused.
+- [X] T051d [US1] Let a page survive a reload and a second tab, in `web/src/lib/session.ts`, `web/src/crypto/envelope.ts`, and `internal/pairing/envelope.go`. **A pre-existing defect, found by running the application, not by any change made here.** The envelope refuses every counter it has already seen and the server keeps one high-water mark per device, while each page keeps its counter in memory. So a page that reloaded started again at one and had everything it sent refused as a replay, and two tabs of one origin locked each other out — the busy one racing ahead, the quiet one permanently behind. On a phone, reloading is among the most ordinary things that can happen. A page now claims a block of counters at load, and a request refused as a replay is retried once from a fresh block, so pages leapfrog instead of deadlocking. Nothing is weakened: counters still only increase, which is the property the check rests on. Pinned by `test/integration/session_resume_test.go` and by the two-tab case in `web/tests/e2e/us2_phone_upload.spec.ts`, which was checked to fail without the fix.
+- [X] T051e [US1] Report which devices can actually be reached, in `internal/httpapi/events.go`, `pairing_handlers.go`, and `web/src/lib/SendPanel.svelte`, per FR-004 and the derived `reachable` field in data-model.md. A pairing lasts a year, so the device list holds every phone ever connected; offering one as a destination with nothing to say it is closed produced a transfer that sat at nothing and never explained itself. Holding an event stream open is what makes a device reachable, and opening or closing one now publishes `device_appeared` / `device_lost` — the event types the contract already defined — so every other page's list stays true rather than being a snapshot from when it loaded.
+- [X] T051b [US1] Build the desktop invitation panel in `web/src/lib/ConnectionInvitation.svelte`: the local address, the pairing code, and the QR image from `/qr`, per FR-002. Found by running the application: a first connection currently requires reading a terminal, which Principle VI ("a first successful transfer reachable in under two minutes, without reading documentation") does not survive.
 - [X] T052 [US1] Build the desktop approval screen for pending devices in `web/src/lib/PendingDevices.svelte`, per FR-010
 - [X] T053 [US1] Implement free space checking before a transfer starts in `internal/transfer/space.go`, per FR-028
 - [X] T054 [US1] Implement the constant-memory streaming engine in `internal/transfer/stream.go` using a fixed buffer, per FR-029
@@ -142,6 +147,18 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 **Checkpoint**: User Story 1 is fully functional and independently testable. This is the MVP.
 
+**What the browser harness found**
+
+The harness (`web/playwright.config.ts`, `web/tests/e2e/fixtures.ts`) starts the real binary with its state redirected into a temporary tree and drives it through two browser contexts. Adding it turned up three defects that every Go test passed straight over, because all three live above the wire:
+
+1. **Nothing could ever be received on the phone.** `TransferProgress.svelte` offered the Save button only once the transfer reached `completed`, but a transfer completes *because* the receiver fetches the content, and that fetch is what the button starts. The two waited for each other. User Story 1 had never worked in a browser.
+2. **The desktop's supply request carried no credential.** `web/src/lib/transfers.ts` posted the file body without an `Authorization` header, so the server refused every supply with `401`, and the failure was swallowed by a bare `if (!response.ok) return;`. The receiver simply waited out the 30-second rendezvous and its download was cancelled with nothing said anywhere.
+3. **The invitation panel kept showing a spent code.** Pairing the computer's own browser consumes the displayed code; the panel went on showing it, and typing those digits into a phone met "already used" with no way forward.
+
+The first two are why the tests are worth their cost: each is invisible to an integration test that speaks HTTP directly, and neither would have surfaced without a browser clicking the buttons in order. The third is now asserted directly in `us1_first_transfer.spec.ts`.
+
+They also exposed a fourth, left open as **T087b**: a page learns of a transfer only from the event that announced it, so anything declared while it was not listening stays invisible to it.
+
 ---
 
 ## Phase 4: User Story 2 - Files from phone to computer (Priority: P2)
@@ -152,23 +169,31 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 
 ### Tests for User Story 2
 
-- [ ] T066 [P] [US2] Contract test for the upward content and offset endpoints in `test/integration/upload_contract_test.go`
-- [ ] T067 [P] [US2] Integration test for the phone-to-computer journey in `test/integration/us2_send_to_computer_test.go`
-- [ ] T068 [P] [US2] Collision and sanitization test covering Windows reserved names in `test/integration/filename_rules_test.go`
-- [ ] T069 [P] [US2] End-to-end browser test of selecting and sending from the phone in `test/e2e/us2_phone_upload.spec.ts`
+- [X] T066 [P] [US2] Contract test for the upward content and offset endpoints in `test/integration/upload_contract_test.go`. Covers the committed-offset reply, the offset endpoint, a chunk at the wrong offset returning `409 offset_mismatch` with the server's value in `params`, a checksum mismatch returning `422` with nothing left in either folder, a third device refused, and a body longer than the declared size being bounded rather than written.
+- [X] T067 [P] [US2] Integration test for the phone-to-computer journey in `test/integration/us2_send_to_computer_test.go`: a 3 MB file in 256 KB chunks arriving intact under its original name, progress visible midway, resume from the committed offset, several files in one send, a folder send keeping its structure, cancellation leaving nothing behind, and a full disk refused before a byte moves.
+- [X] T068 [P] [US2] Collision and sanitization test in `test/integration/filename_rules_test.go`. Windows reserved names, colons, wildcards, trailing dots and spaces are exercised at the HTTP level by setting the destination rule set explicitly, so a Linux runner proves the Windows behaviour and vice versa. Also asserts the same names survive unchanged under the Linux rule set, which is what stops sanitization becoming corruption on the platform that accepts them.
+- [X] T069 [P] [US2] End-to-end browser test of selecting and sending from the phone, in `web/tests/e2e/us2_phone_upload.spec.ts`: a 9 MB file picked on the phone, listed with its name and size before sending, and arriving intact in the receive folder; and a second send of the same name leaving the first file untouched.
 
 ### Implementation for User Story 2
 
-- [ ] T070 [US2] Implement the committed-offset upload endpoint in `internal/httpapi/content_upload.go`, per contracts/http-api.md
-- [ ] T071 [US2] Implement durable offset commitment with fsync in `internal/transfer/offsets.go`
-- [ ] T072 [US2] Implement the item completion and verification endpoint in `internal/httpapi/transfer_complete.go`
-- [ ] T073 [P] [US2] Build the mobile file picker and selection list with names and sizes in `web/src/lib/MobilePicker.svelte`
-- [ ] T074 [P] [US2] Implement chunked client upload from a file offset in `web/src/lib/upload.ts`
-- [ ] T075 [US2] Implement receive folder configuration and its change semantics in `internal/config/receive_folder.go`, per FR-023
-- [ ] T076 [US2] Add a desktop notification on completed incoming transfers in `internal/platform/notify_linux.go` and `internal/platform/notify_windows.go`
-- [ ] T077 [US2] Add translations for every string introduced by this story to `web/src/locales/en.json` and `web/src/locales/fr.json`
+- [X] T070 [US2] Implement the committed-offset upload endpoint in `internal/httpapi/content_upload.go`, per contracts/http-api.md. Holds both `POST .../content?offset=N` and `GET .../offset`. The upload replies in the clear like the other bulk content routes; the offset endpoint is sealed, being control plane.
+- [X] T071 [US2] Implement durable offset commitment with fsync in `internal/transfer/offsets.go`. A `Sink` pairs the open staging file with the rolling BLAKE2b state, because the digest of a file arriving over many requests cannot be stored between them and rehashing the prefix each time would make a linear transfer quadratic. State is rebuilt by one pass when the process restarted mid-transfer. A staging file longer than the acknowledged offset is truncated back to it: those bytes were never promised.
+- [X] T072 [US2] Implement the item completion and verification endpoint in `internal/httpapi/transfer_complete.go`. Verification is the incoming case only; a piped transfer's bytes never touched this disk, so there is nothing here to check and the receiving browser checks its own copy.
+- [X] T073 [P] [US2] Build the mobile file picker and selection list with names and sizes in `web/src/lib/MobilePicker.svelte`, with a camera entry point beside the file picker and live progress reported from the committed offset.
+- [X] T074 [P] [US2] Implement chunked client upload from a file offset in `web/src/lib/upload.ts`. 4 MB chunks, one held at a time, with the digest computed while reading. A `409 offset_mismatch` rewinds to the server's offset and rebuilds the hash rather than writing a hole.
+- [X] T075 [US2] Implement receive folder configuration and its change semantics in `internal/config/receive_folder.go`, per FR-023. Changing it moves nothing on disk and says so in its result. A folder that would contain the staging directory is refused rather than accommodated by relocating staging, and system folders and filesystem roots are refused outright.
+- [X] T076 [US2] Add a desktop notification on completed incoming transfers in `internal/platform/notify_linux.go` and `internal/platform/notify_windows.go`, with the shared contract in `internal/platform/notify.go` and the translated wording in `internal/app/announce.go`. `notify-send` on Linux and a WinRT toast through PowerShell on Windows, both run as commands so the dependency budget is untouched, and both degrading to a logged no-op when the mechanism is absent.
+- [X] T077 [US2] Add translations for every string introduced by this story. The catalogues live in `internal/i18n/locales/`, not `web/src/locales/` as this task said: there is one copy, embedded for the native surfaces and imported from there by the web application, so a translator edits one file and both follow.
 
 **Checkpoint**: Both directions work independently.
+
+**Notes on this phase**
+
+Three pieces of work were needed that no task named:
+
+- **A stable identity for this instance.** `deviceIdentity` in `cmd/fastr/main.go` returned a fresh ULID on the run that created the record and the literal string `"self"` on every run after, so a phone that paired on day one addressed a computer that answered to a different identifier on day two. It now lives in the store's `meta` bucket, minted once, with the device record keyed by it. Schema version 2 drops the old reserved record. Nothing in User Story 2 works without this, because a phone has to name the computer as the target.
+- **`internal/app/incoming.go`**, the orchestration between the endpoint, the sink, and destination naming. It is the third content path and did not fit either existing file.
+- **Checksum vectors** in `test/testdata/crypto-vectors.json`, verified by both `test/integration/crypto_vectors_test.go` and `web/scripts/verify-crypto.ts`. The phone hashes while reading and the computer hashes while writing; if the two BLAKE2b implementations disagreed, every upload from a real phone would fail verification with nothing to point at. Six cases, fed chunk by chunk exactly as `upload.ts` feeds them.
 
 ---
 
@@ -193,6 +218,7 @@ Single Go module with an embedded web application, per [plan.md](./plan.md#proje
 - [ ] T085 [US3] Implement the retention sweep for partial data and expired pairings in `internal/store/sweep.go`, per data-model.md
 - [ ] T086 [US3] Report sweep removals to the user through the event stream in `internal/app/transfers.go`
 - [ ] T087 [P] [US3] Surface interrupted and resumed states distinctly in `web/src/lib/TransferProgress.svelte`, per FR-038
+- [ ] T087b [US3] Reconcile a client's view of its transfers when its event stream connects, in `web/src/routes/App.svelte` and whatever endpoint it needs. Found by the browser tests: a page learns about a transfer only from the `transfer_queued` event, so anything declared while it was not listening is invisible to it forever. A phone that reloads mid-transfer, or that is sent a file in the seconds after pairing, sees nothing at all — no progress, no Save button, no way back. `web/tests/e2e/fixtures.ts` waits for the stream before sending precisely to step around this, and that wait should be deleted when this lands.
 - [ ] T088 [US3] Add translations for every string introduced by this story to `web/src/locales/en.json` and `web/src/locales/fr.json`
 
 **Checkpoint**: Large transfers survive real-world network conditions.

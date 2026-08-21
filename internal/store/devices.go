@@ -189,6 +189,53 @@ func (s *Store) Devices() ([]Device, error) {
 	return out, err
 }
 
+// keySelfDevice records this instance's own device identifier, in the meta
+// bucket rather than under a reserved key in the devices bucket. A reserved key
+// would have to be excluded from every listing and every lookup, and forgetting
+// once would show the machine its own record as if it were a peer.
+var keySelfDevice = []byte("self_device_id")
+
+// SelfDevice returns this instance's device identifier, minting one on first
+// call, and keeps the matching device record in step with the configured name.
+//
+// The identifier must be stable across restarts and across address changes: it
+// is what a phone stores when it pairs, and what it names as the target of a
+// transfer. A value that changed on the second launch would silently strand
+// every pairing made on the first.
+func (s *Store) SelfDevice(name, osName string) (string, error) {
+	var id string
+
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		meta := tx.Bucket(bucketMeta)
+		if meta == nil {
+			return fmt.Errorf("missing bucket %s", bucketMeta)
+		}
+
+		if raw := meta.Get(keySelfDevice); len(raw) > 0 {
+			id = string(raw)
+		} else {
+			id = NewID().String()
+			if err := meta.Put(keySelfDevice, []byte(id)); err != nil {
+				return err
+			}
+		}
+
+		d := Device{
+			ID:       id,
+			Name:     name,
+			Platform: osName,
+			Kind:     KindComputer,
+			LastSeen: s.clock(),
+		}
+		if err := d.Validate(); err != nil {
+			return err
+		}
+		return putJSON(tx, bucketDevices, []byte(id), d)
+	})
+
+	return id, err
+}
+
 // DeleteDevice removes a device and any pairing with it. Removing the device
 // without the pairing would leave an authorization that no interface lists,
 // which is precisely the kind of invisible access Principle V forbids.

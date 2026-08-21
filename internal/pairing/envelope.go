@@ -68,6 +68,19 @@ type Envelope struct {
 // send is the direction this side writes in; the other direction is implied,
 // so a caller cannot accidentally configure both sides to share one space.
 func NewEnvelope(key []byte, send Direction) (*Envelope, error) {
+	return NewEnvelopeAt(key, send, 0)
+}
+
+// NewEnvelopeAt builds an envelope whose send counter resumes at start.
+//
+// A browser page keeps its counter in memory, so a reload builds a new envelope
+// while the peer still remembers the highest counter it accepted. Starting
+// again at zero makes every message look like a replay and leaves the session
+// refused until the peer restarts. The client therefore claims a fresh range of
+// counters at each load, and this is how one is built. Nothing is weakened:
+// counters still only ever increase, which is the property the replay check
+// rests on.
+func NewEnvelopeAt(key []byte, send Direction, start uint64) (*Envelope, error) {
 	if len(key) != chacha20poly1305.KeySize {
 		return nil, fmt.Errorf("session key must be %d bytes, got %d",
 			chacha20poly1305.KeySize, len(key))
@@ -83,7 +96,7 @@ func NewEnvelope(key []byte, send Direction) (*Envelope, error) {
 		recv = ClientToServer
 	}
 
-	return &Envelope{aead: aead, sendDir: send, recvDir: recv}, nil
+	return &Envelope{aead: aead, sendDir: send, recvDir: recv, sendCounter: start}, nil
 }
 
 // nonce builds the 12-byte nonce: one direction byte, the 8-byte counter, and
