@@ -139,10 +139,16 @@ func run(args []string) error {
 	// starts waiting, the sender is told which item and from which offset, so a
 	// page that reconnects mid-transfer knows where to resume.
 	pipes := transfer.NewPipes()
+	sinks := transfer.NewSinks()
+	// Partial data stays on disk for a later resume, but its file handle must
+	// not: Windows will not let the retention sweep remove a file that is still
+	// open.
+	defer sinks.CloseAll()
+
 	transfers := &app.Transfers{
 		Store:    db,
 		Pipes:    pipes,
-		Sinks:    transfer.NewSinks(),
+		Sinks:    sinks,
 		Notify:   httpapi.NewNotifier(events),
 		Space:    transfer.PlatformChecker{Platform: plat},
 		Log:      log,

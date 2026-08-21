@@ -171,7 +171,19 @@ func TestWindowsReservedNamesAreSanitizedAndReported(t *testing.T) {
 // sanitizing would be corrupting names for no reason on the platform that
 // accepts them. Principle IV: the difference is the destination's, not a
 // behavioural divergence.
+//
+// This one direction cannot be exercised on both hosts. The rule sets are data,
+// so a Linux runner can apply the Windows rules and watch a name be sanitized
+// into something both platforms accept. The reverse is not symmetrical: applying
+// the Linux rules on Windows produces a name the actual filesystem refuses to
+// create, and the test would be measuring NTFS rather than this code. So it runs
+// where the disk agrees with the rules being applied, and the Windows rules are
+// covered above from either host.
 func TestNamesLegalOnLinuxAreStoredUnchanged(t *testing.T) {
+	if platform.Current().OS() != platform.Linux {
+		t.Skip("the Linux rule set can only be stored on a filesystem that accepts it")
+	}
+
 	h := newHarness(t)
 	h.transfers.Rules = platform.RulesFor(platform.Linux)
 

@@ -76,10 +76,16 @@ func newHarness(t *testing.T) *harness {
 	receiveDir, stagingDir := t.TempDir(), t.TempDir()
 
 	pipes := transfer.NewPipes()
+	sinks := transfer.NewSinks()
+	// Windows refuses to remove a directory holding an open file, so a test
+	// that leaves a transfer half-finished would fail in its own cleanup rather
+	// than on what it was testing.
+	t.Cleanup(sinks.CloseAll)
+
 	transfers := &app.Transfers{
 		Store:    st,
 		Pipes:    pipes,
-		Sinks:    transfer.NewSinks(),
+		Sinks:    sinks,
 		Notify:   httpapi.NewNotifier(events),
 		Space:    fakeSpace(1 << 40),
 		Log:      logger,

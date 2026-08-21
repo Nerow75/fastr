@@ -133,10 +133,29 @@ func TestTransferMovesAFileEndToEnd(t *testing.T) {
 	}
 
 	// The transfer must end up completed, with its bytes accounted for.
-	final := receiver.transferState(t, tr.ID)
-	if final.State != "completed" {
-		t.Errorf("final state = %q, want completed", final.State)
+	//
+	// Waited for rather than read once: the server finishes the transfer after
+	// the last byte is on the wire, so a client that has read the whole body can
+	// still be ahead of the bookkeeping. Reading immediately happened to work on
+	// Linux and did not on Windows, which is a property of the scheduler rather
+	// than of the code under test.
+	receiver.waitForState(t, tr.ID, "completed")
+}
+
+// waitForState polls until a transfer reaches a state, or gives up loudly.
+func (d *device) waitForState(t *testing.T, id, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		last = d.transferState(t, id).State
+		if last == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+	t.Errorf("final state = %q, want %q", last, want)
 }
 
 // The download carries the sanitized name, not whatever the sender said.

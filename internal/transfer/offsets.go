@@ -136,6 +136,29 @@ func (s *Sinks) Discard(key Key) error {
 	return sink.discard()
 }
 
+// CloseAll releases every open staging file, leaving the partial data on disk
+// for a later resume.
+//
+// Called at shutdown. It matters more than it looks: Windows refuses to delete
+// or move a file that is still open, so a handle left behind by a transfer that
+// was merely abandoned — the phone closed, nobody cancelled anything — would
+// block the retention sweep from ever clearing it. Linux would have let it go
+// unnoticed, which is exactly the kind of difference Principle IV exists to
+// keep out of the domain logic.
+func (s *Sinks) CloseAll() {
+	s.mu.Lock()
+	held := make([]*Sink, 0, len(s.byKey))
+	for key, sink := range s.byKey {
+		held = append(held, sink)
+		delete(s.byKey, key)
+	}
+	s.mu.Unlock()
+
+	for _, sink := range held {
+		sink.close()
+	}
+}
+
 // Len reports how many sinks are held. Tests use it to check they do not leak.
 func (s *Sinks) Len() int {
 	s.mu.Lock()
