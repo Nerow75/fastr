@@ -23,22 +23,70 @@
     targetName: string;
     targetDeviceId: string;
     uploader: Uploader;
+    /**
+     * Transfers from this phone that have not finished, as the computer knows
+     * them. After a reload this is the only trace of what was in flight: the
+     * page reconciles them from the queue, and picking the same file again
+     * continues one of them rather than starting a second copy.
+     */
+    unfinished?: Transfer[];
     onsent: (transfer: Transfer) => void;
     onerror: (failure: unknown) => void;
   }
 
-  let { targetName, targetDeviceId, uploader, onsent, onerror }: Props = $props();
+  let {
+    targetName,
+    targetDeviceId,
+    uploader,
+    unfinished = [],
+    onsent,
+    onerror,
+  }: Props = $props();
 
   let files = $state<File[]>([]);
   let busy = $state(false);
   let progress = $state<UploadProgress | null>(null);
   let active = $state<string | null>(null);
+  // Set while the upload is between attempts. A phone that lost Wi-Fi is the
+  // ordinary case, and a bar that simply stops moving is indistinguishable from
+  // one that has broken. FR-038: say what is happening and what happens next.
+  let retryAt = $state<number | null>(null);
+  let retrySeconds = $state(0);
 
   let picker: HTMLInputElement | null = $state(null);
   let cameraPicker: HTMLInputElement | null = $state(null);
 
   let totalBytes = $derived(files.reduce((sum, f) => sum + f.size, 0));
   let ready = $derived(files.length > 0 && targetDeviceId !== '' && !busy);
+
+  /**
+   * The unfinished transfer these files belong to, if there is one.
+   *
+   * A phone that was backgrounded mid-upload comes back with no memory of what
+   * it was doing: iOS discards the page, and the File objects go with it. The
+   * only way back to the transfer is for the user to pick the same file again,
+   * so that is what this looks for.
+   *
+   * Matched on names and sizes in order. That is a heuristic, and it is allowed
+   * to be, because it is not what makes the file correct: the digest is
+   * computed over what is actually read and verified against what was actually
+   * written, so picking the wrong file of the same name and size fails
+   * verification rather than producing a wrong file (FR-032).
+   */
+  let resumable = $derived(
+    files.length === 0
+      ? undefined
+      : unfinished.find(
+          (tr) =>
+            tr.items.length === files.length &&
+            tr.items.every((item, i) => item.name === files[i].name && item.size === files[i].size),
+        ),
+  );
+
+  /** How much of the resumable transfer the computer already holds. */
+  let alreadyThere = $derived(
+    resumable ? resumable.items.reduce((sum, item) => sum + item.committed_offset, 0) : 0,
+  );
 
   let percent = $derived(
     progress && progress.total > 0 ? Math.round((progress.transferred / progress.total) * 100) : 0,
@@ -70,12 +118,27 @@
     progress = null;
 
     try {
-      const transfer = await uploader.declare(targetDeviceId, files);
+      // Continued rather than declared again when the computer still holds a
+      // transfer for these files: run() asks for the committed offset before
+      // sending anything, so this resumes by construction.
+      const transfer = resumable ?? (await uploader.declare(targetDeviceId, files));
       active = transfer.id;
       onsent(transfer);
 
       const sending = files;
-      await uploader.run(transfer, sending, (p) => (progress = p));
+      await uploader.run(
+        transfer,
+        sending,
+        (p) => {
+          // Any progress at all means the connection came back.
+          retryAt = null;
+          progress = p;
+        },
+        (waiting) => {
+          retryAt = Date.now() + waiting.delay;
+          announce(t('transfer.reconnecting_in', { seconds: Math.ceil(waiting.delay / 1000) }));
+        },
+      );
 
       files = [];
       announce(t('a11y.transfer_completed', { name: sending[0]?.name ?? '' }));
@@ -87,8 +150,25 @@
       busy = false;
       active = null;
       progress = null;
+      retryAt = null;
     }
   }
+
+  // A countdown rather than a spinner: "reconnecting" with no number is the
+  // same as a frozen bar, and the number is the thing that says the page has
+  // not given up.
+  $effect(() => {
+    if (retryAt === null) {
+      retrySeconds = 0;
+      return;
+    }
+    const tick = (): void => {
+      retrySeconds = Math.max(0, Math.ceil((retryAt! - Date.now()) / 1000));
+    };
+    tick();
+    const timer = setInterval(tick, 500);
+    return () => clearInterval(timer);
+  });
 
   async function stop(): Promise<void> {
     if (!active) return;
@@ -156,6 +236,27 @@
         {/each}
       </ul>
 
+      {#if resumable && !busy}
+        <!--
+          Said before the button is pressed, because "Resume" alone does not
+          tell the user that the wait will be shorter than the first attempt.
+        -->
+        <p class="resuming" role="status">
+          {t('transfer.resume_hint', { transferred: formatBytes(alreadyThere) })}
+        </p>
+      {/if}
+
+      {#if retryAt !== null}
+        <!--
+          Interrupted, not failed. The computer keeps the committed offset for
+          seven days, so nothing that arrived is lost and the next attempt
+          continues from it.
+        -->
+        <p class="reconnecting" role="status">
+          {t('transfer.reconnecting_in', { seconds: retrySeconds })}
+        </p>
+      {/if}
+
       {#if busy && progress}
         <!--
           The committed offset, not what has been handed to the network: it is
@@ -182,7 +283,7 @@
         {:else}
           <button type="button" class="secondary" onclick={clear}>{t('transfer.clear')}</button>
           <button type="button" class="primary" disabled={!ready} onclick={submit}>
-            {t('transfer.send')}
+            {resumable ? t('transfer.resume') : t('transfer.send')}
           </button>
         {/if}
       </div>
@@ -318,6 +419,23 @@
   .note {
     margin: 0.5rem 0 0;
     color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  .resuming {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  /* Not styled as an error: nothing has gone wrong yet, and the committed
+     offset means nothing has been lost either. */
+  .reconnecting {
+    margin: 0.75rem 0 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
     font-size: 0.875rem;
   }
 </style>

@@ -36,6 +36,9 @@
   let session = $state<Session | null>(null);
   let connected = $state(false);
   let error = $state<string | null>(null);
+  // Something happened that the user should know about but need not act on: the
+  // retention sweep removing data, so far. Dismissible, unlike an error.
+  let notice = $state<string | null>(null);
   let main = $state<HTMLElement | null>(null);
   // Bumped on every pairing_pending event, so the approval panel refetches
   // without polling hard.
@@ -60,6 +63,18 @@
   // offering to send a file to itself, which the server refuses anyway.
   let peers = $derived(devices.filter((d) => d.id !== session?.deviceId));
   let hasPairedPeer = $derived(peers.some((d) => d.paired));
+
+  // Transfers this device is sending that have not finished. After a reload
+  // they come from the queue rather than from memory, and they are what lets
+  // picking the same file again continue an upload instead of starting a
+  // second copy of it.
+  let resumable = $derived(
+    transfers.filter(
+      (tr) =>
+        tr.source_device_id === session?.deviceId &&
+        !['completed', 'failed', 'cancelled'].includes(tr.state),
+    ),
+  );
 
   onMount(() => {
     installLiveRegions();
@@ -119,9 +134,18 @@
     stream = new EventStream(active);
     stream.onConnectionChange((state) => {
       connected = state;
-      // A page that was away may have missed a demand, which would otherwise
-      // leave the receiver waiting until the supply timeout.
-      if (state) void resumeAllWaiting();
+      if (!state) return;
+      // Reconciled before anything else, because everything else depends on
+      // knowing which transfers exist. A page learns about a transfer from the
+      // event announcing it, and an event announced while nothing was listening
+      // is gone: a phone that reloads mid-transfer would otherwise see no
+      // progress, no Save button, and no way back to a file that is still
+      // moving. Reading the queue answers the question the missed events would
+      // have.
+      void reconcile(active);
+      // And a page that was away may have missed a demand, which would leave
+      // the receiver waiting until the supply timeout.
+      void resumeAllWaiting();
     });
     stream.on(handleEvent);
     stream.start();
@@ -146,6 +170,44 @@
     } catch {
       // Gone, or not ours. Neither is worth an error banner.
     }
+  }
+
+  /**
+   * Reads the transfers this device is a party to and is not finished with.
+   *
+   * Everything not yet terminal is either the active transfer or one of the
+   * waiting entries, so the queue is the complete answer rather than an
+   * approximation of it. Merged rather than replacing: a transfer this page
+   * declared a moment ago may not have reached the queue read yet, and losing it
+   * from the list would be the same bug in the other direction.
+   */
+  async function reconcile(active: Session): Promise<void> {
+    try {
+      const queue = await active.request<{
+        entries: Transfer[];
+        active?: Transfer | null;
+      }>('GET', '/api/queue');
+
+      const live = [...(queue.active ? [queue.active] : []), ...(queue.entries ?? [])];
+      const known = new Set(live.map((tr) => tr.id));
+
+      transfers = [...live, ...transfers.filter((tr) => !known.has(tr.id))];
+    } catch {
+      // A page with no queue is a page that shows what it was told about, which
+      // is where it started. Not worth an error banner.
+    }
+  }
+
+  /**
+   * Puts a transfer at the top of the list, replacing it if it is already
+   * there.
+   *
+   * Resuming produces the same transfer twice: once from the queue on connect,
+   * once from the panel that just continued it. Prepending both would give the
+   * keyed each block two entries with one key, which Svelte refuses outright.
+   */
+  function noteTransfer(transfer: Transfer): void {
+    transfers = [transfer, ...transfers.filter((tr) => tr.id !== transfer.id)];
   }
 
   async function resumeAllWaiting(): Promise<void> {
@@ -189,6 +251,31 @@
       // This device's own pairing was revoked from the computer.
       session = null;
       stream?.stop();
+      return;
+    }
+
+    // The order changed, or an entry was removed, on some other page.
+    if (event.type === 'queue_changed') {
+      if (session) void reconcile(session);
+      return;
+    }
+
+    // FR-034: the retention sweep tells the user what it took. It runs at
+    // startup and daily, so this is usually the first thing a page hears.
+    if (event.type === 'sweep_removed') {
+      const removed = (event.payload?.removed ?? []) as { kind: string; id: string }[];
+      const gone = new Set(removed.filter((r) => r.kind === 'transfer').map((r) => r.id));
+      transfers = transfers.filter((tr) => !gone.has(tr.id));
+
+      // Said by kind, because "3 things were removed" is not something anyone
+      // can act on. A sweep after a long absence takes both.
+      const pairings = removed.filter((r) => r.kind === 'pairing').length;
+      const lines = [
+        gone.size > 0 ? t('sweep.removed_partials', { count: gone.size }) : '',
+        pairings > 0 ? t('sweep.expired_pairings', { count: pairings }) : '',
+      ].filter(Boolean);
+
+      if (lines.length > 0) notice = lines.join(' ');
       return;
     }
 
@@ -262,6 +349,16 @@
     <p class="error" role="alert">{error}</p>
   {/if}
 
+  {#if notice}
+    <!-- status rather than alert: it is worth reading, not worth interrupting. -->
+    <p class="notice" role="status">
+      {notice}
+      <button type="button" class="dismiss" onclick={() => (notice = null)}>
+        {t('action.dismiss')}
+      </button>
+    </p>
+  {/if}
+
   {#if desktop}
     <!--
       FR-002: the address and the QR that encodes it, with the code to type on
@@ -305,7 +402,7 @@
       <SendPanel
         devices={peers}
         {sender}
-        onsent={(transfer) => (transfers = [transfer, ...transfers])}
+        onsent={noteTransfer}
         onerror={onPairingError}
       />
     {:else if !desktop && uploader}
@@ -313,7 +410,8 @@
         targetName={host.name}
         targetDeviceId={host.device_id}
         {uploader}
-        onsent={(transfer) => (transfers = [transfer, ...transfers])}
+        unfinished={resumable}
+        onsent={noteTransfer}
         onerror={onPairingError}
       />
     {/if}
@@ -397,5 +495,29 @@
     padding: 0.75rem 1rem;
     color: var(--danger);
     background: var(--surface);
+  }
+
+  .notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    font-size: 0.9375rem;
+  }
+
+  .dismiss {
+    min-height: 2.75rem;
+    flex-shrink: 0;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.875rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
   }
 </style>

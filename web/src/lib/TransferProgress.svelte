@@ -32,6 +32,21 @@
   let finished = $derived(['completed', 'failed', 'cancelled'].includes(transfer.state));
 
   /**
+   * Interrupted is not failed, and the interface has to make that obvious.
+   *
+   * The committed offset is durable and the server keeps it for seven days, so
+   * an interrupted transfer has lost nothing: it is waiting, and picking the
+   * file again continues from where it stopped. Rendering it the way a failure
+   * is rendered would make people start over, which is exactly the work this
+   * story exists to avoid. FR-038.
+   */
+  let interrupted = $derived(transfer.state === 'interrupted');
+  let done = $derived(
+    transfer.items.reduce((sum, item) => sum + item.committed_offset, 0) ||
+      transfer.transferred_bytes,
+  );
+
+  /**
    * Whether this page can still fetch the content.
    *
    * Saving is offered from the moment the transfer is queued, not once it has
@@ -54,9 +69,26 @@
   function stateLabel(state: string): string {
     return t(`transfer.state.${state}`);
   }
+
+  /**
+   * The message for a failure cause.
+   *
+   * Causes and error codes are the same vocabulary with two exceptions, so they
+   * share one set of translations rather than a parallel set that would drift
+   * from it. Each message carries a corrective action, which is what FR-038
+   * asks for and what a bare code cannot give.
+   */
+  const causeKeys: Record<string, string> = {
+    declined: 'error.transfer_declined',
+    pairing_revoked: 'error.pairing_revoked',
+  };
+
+  function causeMessage(cause: string): string {
+    return t(causeKeys[cause] ?? `error.${cause}`);
+  }
 </script>
 
-<article class="transfer" class:finished>
+<article class="transfer" class:finished class:interrupted>
   <header>
     <h3>{transfer.items[0]?.name ?? transfer.id}</h3>
     <p class="state">{stateLabel(transfer.state)}</p>
@@ -76,9 +108,21 @@
     </p>
   {/if}
 
+  {#if interrupted}
+    <!--
+      Says the thing the user needs to know and nothing else: what has already
+      arrived is safe, and continuing costs only what is left. Without this the
+      state word alone reads like a failure and people start over.
+    -->
+    <p class="waiting" role="status">
+      {t('transfer.interrupted_hint', { transferred: formatBytes(done) })}
+    </p>
+  {/if}
+
   {#if transfer.state === 'failed' && transfer.failure_cause}
-    <!-- A failure names its cause, never a bare code. FR-038. -->
-    <p class="failure" role="alert">{t(`error.${transfer.failure_cause}`)}</p>
+    <!-- A failure names its cause and what to do about it, never a bare code.
+         FR-038. -->
+    <p class="failure" role="alert">{causeMessage(transfer.failure_cause)}</p>
   {/if}
 
   <div class="actions">
@@ -121,6 +165,19 @@
 
   .transfer.finished {
     opacity: 0.85;
+  }
+
+  /* A left border rather than a colour on the text: this is a state, not a
+     warning, and it has to be distinguishable without relying on colour
+     alone — the state word above says the same thing. */
+  .transfer.interrupted {
+    border-left: 3px solid var(--accent);
+  }
+
+  .waiting {
+    margin: 0.5rem 0 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
   }
 
   header {

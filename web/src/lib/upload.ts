@@ -28,8 +28,10 @@
 
 import { blake2b } from '@noble/hashes/blake2';
 import { toBase64 } from '../crypto/envelope.js';
-import type { Session } from './session.js';
+import { ApiFailure, type Session } from './session.js';
+import type { ApiError } from './i18n.js';
 import type { Transfer } from './transfers.js';
+import { withResume, type ResumeOptions, type Waiting } from './resume.js';
 
 /**
  * How much is sent per request.
@@ -108,6 +110,7 @@ export class Uploader {
     transfer: Transfer,
     files: File[],
     onProgress?: (p: UploadProgress) => void,
+    onWaiting?: (w: Waiting) => void,
   ): Promise<void> {
     const abort = new AbortController();
     this.aborts.set(transfer.id, abort);
@@ -117,7 +120,15 @@ export class Uploader {
         const file = files[item.index];
         if (!file) throw new Error(`no file for item ${item.index}`);
 
-        await this.sendItem(transfer.id, item.index, file, abort.signal, onProgress);
+        // Retrying an item *is* resuming it: sendItem asks the computer where
+        // it stands before sending anything, so a second attempt continues from
+        // the committed offset rather than starting the file again. That is why
+        // the whole item can be wrapped rather than each chunk.
+        const options: ResumeOptions = { signal: abort.signal, onWaiting };
+        await withResume(
+          () => this.sendItem(transfer.id, item.index, file, abort.signal, onProgress),
+          options,
+        );
       }
     } finally {
       this.aborts.delete(transfer.id);
@@ -244,17 +255,17 @@ export class Uploader {
       return { committed: body.committed_offset };
     }
 
-    const failure = (await response.json()) as {
-      error: string;
-      params?: Record<string, unknown>;
-    };
+    const failure = (await response.json()) as ApiError;
 
     if (failure.error === 'offset_mismatch') {
       const corrected = failure.params?.committed_offset;
       if (typeof corrected === 'number') return { committed: offset, corrected };
     }
 
-    throw new Error(`upload failed at ${offset}: ${failure.error}`);
+    // Thrown as an ApiFailure rather than a plain Error so the retry policy can
+    // read the catalogue code: a busy queue is worth waiting for and a refused
+    // credential is not, and a formatted message hides which one this is.
+    throw new ApiFailure(response.status, failure);
   }
 }
 

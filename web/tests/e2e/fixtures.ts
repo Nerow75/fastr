@@ -205,19 +205,26 @@ export async function pair(desktop: Page, client: Page, deviceName: string): Pro
 
   await request.getByRole('button', { name: 'Allow', exact: true }).click();
 
-  // The client polls for the answer, so paired means the pairing form is gone.
-  await expect(form).toBeHidden({ timeout: 30_000 });
-
-  // And then wait for its event stream to be live.
+  // Paired means the page holds a session, and the status line in the header is
+  // what that renders as: it is behind the same `{#if session}` as everything
+  // else the page gains by pairing.
   //
-  // Not politeness: a transfer declared before the receiver is listening is one
-  // it never hears about, because nothing reconciles state on connect. That is
-  // T087b, and this wait should be deleted when it lands. A person pairing a
-  // phone and then walking to their computer never hits the window; a test
-  // sending a file three milliseconds later hits it every time.
-  await expect(client.locator('header .status')).toContainText('is listening on this network', {
-    timeout: 30_000,
-  });
+  // Not "the pairing form is gone", which is what this used to check and what
+  // it looks like it should check. The pairing screen keeps its region and
+  // swaps the heading to "Waiting for approval" while it polls, so a check for
+  // the absence of "Connect this phone" passes the moment the code is
+  // submitted — before anyone has approved anything, and before a credential
+  // exists. It went unnoticed because the wait that followed it happened to
+  // cover the gap.
+  await expect(client.locator('header .status')).toBeVisible({ timeout: 30_000 });
+
+  // And deliberately *not* waiting for the event stream to be live.
+  //
+  // That wait used to be here, because a transfer declared before the receiver
+  // was listening was one it never heard about: nothing reconciled state on
+  // connect, so the event was lost and the phone sat there showing nothing.
+  // T087b closed that, and removing the wait is how these tests prove it — a
+  // send that begins before the stream is up now reaches the phone anyway.
 }
 
 /** Opens a page as a device on the far side of the network. */

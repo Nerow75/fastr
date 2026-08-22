@@ -156,7 +156,7 @@ path before this succeeds (FR-032, FR-033).
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/queue` | Ordered entries and the active one. |
+| `GET` | `/api/queue` | Ordered entries and the active one, as full transfer objects rather than identifiers, and scoped to what the caller is a party to. Serving them whole makes this the **reconciliation** endpoint as well: a transfer that is neither terminal nor forgotten is by definition either the active one or a waiting entry, so a page that reads this on connect recovers every transfer whose announcing event it was not there to hear. Without it a phone that reloads mid-transfer never sees that transfer again. |
 | `POST` | `/api/queue/reorder` | Full ordering of non-active entries. Rejects any attempt to move the active entry. |
 | `DELETE` | `/api/queue/{transfer_id}` | Remove one waiting entry. |
 | `DELETE` | `/api/queue` | Clear all waiting entries. The active transfer is untouched (FR-035c). |

@@ -8,6 +8,92 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-22 — User Story 3: surviving an interruption
+
+Tasks: 83 → 95 of 159. Phase 5 complete.
+
+### The shape of it
+
+A dropped network is the ordinary case on a phone, and the whole story is about
+making it cost a round trip instead of a file. Three pieces, and the middle one
+is the one that was missing:
+
+1. **The server already kept the resume point.** An offset is only acknowledged
+   after an `fsync`, and a short copy is still committed, so a severed
+   connection loses nothing that arrived. `TestAnInterruptedUploadResendsAlmostNothing`
+   cuts a connection at the TCP layer — a raw socket, a half close partway
+   through the body — and measures re-sent bytes at zero. SC-005 allows 1%.
+2. **Nothing brought the sender back.** `web/src/lib/resume.ts` now does, and
+   the design worth remembering is that *retrying is resuming*: the upload asks
+   for the committed offset before sending anything, so running an item again
+   continues it. Nothing replays a request; there is no queue of pending writes.
+3. **Nothing survived a reload.** See T087b below.
+
+### What changed underneath
+
+**Every error used to interrupt a transfer, including a full disk.** The sender
+would then retry forever into a destination that could never accept it, while
+the interface said "interrupted". `transfer.Classify` separates the two, and its
+default is interruption on purpose: a transfer wrongly interrupted keeps its
+bytes and is swept after seven days, one wrongly failed throws them away now.
+
+**A `running` transfer found at startup is a lie a dead process left holding the
+single active slot.** Until `Transfers.Recover`, that ghost blocked every real
+transfer behind it (FR-035a allows exactly one at a time). They become
+interrupted, which is the state they were always in.
+
+**The retention sweep fails abandoned transfers with a cause and records them in
+history before removing them.** A transfer that simply vanished would be
+indistinguishable, from where the user sits, from one that was lost.
+
+### T087b, and what removing a workaround exposed
+
+A page learned about a transfer only from the event announcing it. `GET /api/queue`
+now answers that on connect, and it needed no new route: a transfer that is
+neither terminal nor forgotten is either the active one or a waiting entry, so
+the queue *is* the reconciliation set.
+
+The wait in `web/tests/e2e/fixtures.ts` that stepped around this is gone — which
+is how the suite proves the fix. Removing it broke a test, and the reason was
+not the fix: **`pair()` never actually waited for pairing.** It waited for the
+region named "Connect this phone" to disappear, and the pairing screen merely
+swaps that heading to "Waiting for approval" while it polls. The check passed
+the moment the code was submitted, before anyone had approved anything and
+before a credential existed. The stream wait had been covering the gap for as
+long as both existed. A helper that lies about its postcondition is worse than
+one that is slow.
+
+### Defects found by writing the tests
+
+- **A failed transfer could be completed a second time**, and that attempt
+  re-opened a sink and re-created the staging file the failure had just deleted.
+- **`Declare` stamped `queued_at` from the wall clock** while every other
+  timestamp came from the store's, so a record disagreed with itself. Found
+  because a retention test passed with *and* without its fix until this was
+  corrected.
+- **Failure causes rendered as bare codes.** `error.destination_full` and three
+  others did not exist, so a failed transfer showed the literal string
+  `error.abandoned`. FR-038 exists to forbid exactly that.
+
+### Added to the model
+
+`last_progress_at` on Transfer (data-model.md amended). Without it the sweep
+cannot tell a transfer nobody has touched in a week from a 10 GB file crossing a
+bad link, and this story exists for the second one. It costs nothing: the record
+is rewritten on every committed offset anyway.
+
+`destination_unwritable` as a failure cause, because "the disk is full" and "the
+folder is read-only" have different corrective actions and FR-038 promises an
+action rather than a category.
+
+### Verified
+
+311 Go tests, 7 browser tests. The two claims worth doubting were checked by
+breaking the code: the resume test fails without the resume path, and the
+sweep's "slow is not abandoned" test fails without `last_progress_at`.
+
+---
+
 ## 2026-08-22 — Computer to phone, on a real phone
 
 **User Story 1 works on real hardware.** A file went from Fedora to a physical

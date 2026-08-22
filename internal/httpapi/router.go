@@ -85,6 +85,13 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("GET /api/transfers/{id}/items/{index}/offset", d.authenticated(d.handleItemOffset))
 	mux.Handle("POST /api/transfers/{id}/items/{index}/complete", d.authenticated(d.handleCompleteItem))
 
+	// The queue, and with it the only way a page can find out about a transfer
+	// whose announcing event it was not there to hear. See queue_handlers.go.
+	mux.Handle("GET /api/queue", d.authenticated(d.handleQueue))
+	mux.Handle("POST /api/queue/reorder", d.authenticated(d.handleReorderQueue))
+	mux.Handle("DELETE /api/queue", d.authenticated(d.handleClearQueue))
+	mux.Handle("DELETE /api/queue/{id}", d.authenticated(d.handleRemoveFromQueue))
+
 	// Bulk content. Not sealed in simple mode: constitution v2.0.1 is explicit
 	// that file content travels in the clear there, and the interface says so.
 	// These stream, so they must not pass through the envelope middleware,
