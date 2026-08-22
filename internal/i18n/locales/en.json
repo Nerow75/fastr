@@ -123,6 +123,7 @@
   "pairing.cancel": "Cancel",
   "transfer.no_devices": "No paired devices yet. Connect a phone first.",
   "transfer.to": "To",
+  "transfer.pick_device": "Choose a device",
   "transfer.selected": "{count} files, {size}",
   "transfer.clear": "Clear selection",
   "transfer.keep_tab_open": "Keep this tab open while the transfer runs. It holds the files.",

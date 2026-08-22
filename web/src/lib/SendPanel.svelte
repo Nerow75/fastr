@@ -49,13 +49,15 @@
   let chosen = $derived(targets.find((d) => d.id === target));
   let unreachable = $derived(chosen !== undefined && chosen.connected === false);
 
-  // Prefer the only reachable device. Falling back to the only paired one keeps
-  // the common single-phone case working while it is still connecting.
+  // Preselect the only reachable device, and nothing else. A device that is not
+  // connected is never chosen for the user: a select shows its first option, so
+  // preselecting the only paired phone made "Phone — not connected" the resting
+  // state of the panel even when no phone had ever opened its page. The
+  // placeholder says what to do instead.
   $effect(() => {
     if (target !== '') return;
     const reachable = targets.filter((d) => d.connected);
     if (reachable.length === 1) target = reachable[0].id;
-    else if (targets.length === 1) target = targets[0].id;
   });
 
   function onDrop(event: DragEvent): void {
@@ -107,6 +109,7 @@
     <div class="field">
       <label for="send-target">{t('transfer.to')}</label>
       <select id="send-target" bind:value={target}>
+        <option value="" disabled>{t('transfer.pick_device')}</option>
         {#each targets as device (device.id)}
           <option value={device.id}>
             {device.connected ? device.name : t('device.offline_option', { name: device.name })}

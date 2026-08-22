@@ -123,6 +123,7 @@
   "pairing.cancel": "Annuler",
   "transfer.no_devices": "Aucun appareil appairé pour l'instant. Connectez d'abord un téléphone.",
   "transfer.to": "Vers",
+  "transfer.pick_device": "Choisissez un appareil",
   "transfer.selected": "{count} fichiers, {size}",
   "transfer.clear": "Vider la sélection",
   "transfer.keep_tab_open": "Gardez cet onglet ouvert pendant le transfert. C'est lui qui détient les fichiers.",

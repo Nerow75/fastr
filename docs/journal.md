@@ -8,6 +8,27 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-22 — Computer to phone, on a real phone
+
+**User Story 1 works on real hardware.** A file went from Fedora to a physical
+iPhone over the LAN, which is the direction that had never been tried outside a
+browser test. Both directions are now confirmed on a real device, and nothing in
+the two-mode encryption story or the non-secure-context bet is left unverified.
+
+One thing came back from that run. The send panel preselected the only paired
+device even when it was closed, so its resting state read "Phone — not
+connected": a select shows its first option, and there was no other. T051e had
+already made reachability *visible*, which turned out to be half the fix. Only a
+reachable device is chosen for the user now; otherwise the box asks for a
+choice.
+
+The browser test for it (`us1_first_transfer.spec.ts`) pairs a phone, closes its
+page, waits for the computer to actually observe the loss, then reloads and
+asserts the placeholder. Checked to fail on the assertion that matters without
+the fix.
+
+---
+
 ## 2026-08-21 — User Story 2, a first connection without a terminal, and the browser harness
 
 Commits: `21a4e2e`, `ee612e1`. Tasks: 64 → 83 of 159.
@@ -136,7 +157,7 @@ data, and the chunked upload path holds end to end.
 
 The other direction — computer to phone — is fixed but has **not** been tried on
 a real phone. It never worked before this session, so it is the first thing to
-test.
+test. *(Done on 2026-08-22; see the entry above.)*
 
 ---
 

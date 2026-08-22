@@ -114,6 +114,48 @@ test.describe('the first transfer', () => {
     expect(got.equals(payload)).toBe(true);
   });
 
+  test('a device that cannot be reached is never chosen for you', async ({ browser, fastr }) => {
+    test.skip(fastr.mobileURL === '', 'no LAN address: nothing can play the part of a phone');
+
+    const desktop = await browser.newPage();
+    await desktop.goto(fastr.desktopURL);
+
+    const phone = await openPhone(browser, fastr);
+    await pair(desktop, phone, 'Test Phone');
+
+    const select = desktop
+      .getByRole('region', { name: 'Send', exact: true })
+      .locator('select#send-target');
+
+    // Reachable and alone: choosing it is a convenience worth keeping.
+    await expect(select).not.toHaveValue('', { timeout: 20_000 });
+
+    // A pairing lasts a year, so a phone that closed its page stays in this
+    // list. Close it, and wait for the computer to have noticed: the label
+    // carries the reachability, so it is also the signal that the event
+    // arrived. Reloading before it does would read the stale answer.
+    const context = phone.context();
+    await phone.close();
+
+    const option = select.locator('option', { hasText: 'Test Phone' });
+    await expect(option).toHaveText(/not connected/, { timeout: 20_000 });
+
+    // The resting state of a fresh page, which is what a person actually
+    // meets. A select shows its first option, so preselecting the only paired
+    // phone put "Test Phone — not connected" in the box of someone whose phone
+    // had never opened its page, and sending to it did nothing and said
+    // nothing. The placeholder says what to do instead.
+    await desktop.reload();
+    await expect(select).toHaveValue('', { timeout: 20_000 });
+    await expect(select.locator('option:checked')).toHaveText('Choose a device');
+
+    // And the phone coming back is enough to be offered again: same context,
+    // so it still holds its credential and does not pair a second time.
+    const returned = await context.newPage();
+    await returned.goto(fastr.mobileURL);
+    await expect(select).not.toHaveValue('', { timeout: 30_000 });
+  });
+
   test('an unpaired phone is offered nothing but the pairing form', async ({ browser, fastr }) => {
     test.skip(fastr.mobileURL === '', 'no LAN address: nothing can play the part of a phone');
 
