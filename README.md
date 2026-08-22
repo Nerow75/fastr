@@ -121,6 +121,9 @@ vulnerability.
 
 The project uses [GitHub Spec Kit](https://github.com/github/spec-kit): specifications come before
 code, and they live in the repository alongside it.
+`specs/001-lan-file-transfer/tasks.md` is the source of truth for what is done;
+[docs/journal.md](docs/journal.md) carries the reasoning behind the decisions, the defects found
+along the way, and what is deliberately still open.
 
 ## License
 
