@@ -98,6 +98,11 @@ func (s *Store) Path() string { return s.db.Path() }
 // retention without waiting a year.
 func (s *Store) SetClock(now func() time.Time) { s.now = now }
 
+// Now is the store's idea of the time. Callers that stamp a record they are
+// about to store use it rather than time.Now, or a moved clock would produce a
+// record whose timestamps disagree with each other.
+func (s *Store) Now() time.Time { return s.clock() }
+
 func (s *Store) clock() time.Time {
 	if s.now == nil {
 		return time.Now()

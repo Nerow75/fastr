@@ -9,6 +9,8 @@
   "notification.received.one": "Received {name}",
   "notification.received.many": "Received {count} files",
   "notification.received.body": "Saved to {folder}",
+  "notification.swept.title": "fastr removed {count} unfinished transfers",
+  "notification.swept.body": "They had been waiting more than 7 days. Open fastr to see what went.",
   "pairing.title": "Connect this phone",
   "pairing.scan_instruction": "Scan the code on your computer, or type it below.",
   "pairing.invite_title": "Connect a phone",

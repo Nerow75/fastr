@@ -97,10 +97,23 @@ func (t *Transfers) Receive(
 			return committed, Errorf(CodeOffsetMismatch, err).
 				WithParam("committed_offset", committed)
 		}
+
 		// A dropped connection is an interruption, not a failure: the state
-		// keeps the resume point and steps aside so the queue moves. FR-035d.
-		t.Interrupt(tr.ID, err)
-		return committed, Errorf(CodeInternal, err)
+		// keeps the resume point and steps aside so the queue moves (FR-035d).
+		// A destination that cannot hold the file is the opposite, and calling
+		// it an interruption would leave the sender retrying into a full disk
+		// forever while the interface said "interrupted".
+		switch fault := transfer.Classify(err); fault {
+		case transfer.FaultDestinationFull:
+			t.Fail(tr.ID, store.CauseDestinationFull)
+			return committed, Errorf(CodeInsufficientSpace, err)
+		case transfer.FaultDestinationUnwritable:
+			t.Fail(tr.ID, store.CauseDestinationUnwritable)
+			return committed, Errorf(CodeInternal, err)
+		default:
+			t.Interrupt(tr.ID, err)
+			return committed, Errorf(CodeInternal, err)
+		}
 	}
 
 	return committed, nil
@@ -135,6 +148,14 @@ func (t *Transfers) CommitItem(tr store.Transfer, index int, expected []byte) (s
 	item := tr.Items[index]
 	if item.State == store.StateCompleted {
 		return tr, nil // already placed; completing twice is not an error
+	}
+	// A transfer that has ended stays ended. Without this a sender could keep
+	// completing a failed item until an attempt got through, and worse, the
+	// attempt would open a sink and re-create the staging file the failure had
+	// just deleted. Invisible rather than refused, like every other lookup of a
+	// transfer the caller has no business in.
+	if tr.State.Terminal() {
+		return store.Transfer{}, New(CodeTransferNotFound)
 	}
 	if item.CommittedOffset != item.Size {
 		return store.Transfer{}, Errorf(CodeInvalidRequest,
@@ -207,10 +228,18 @@ func (t *Transfers) discardStaging(tr store.Transfer) {
 	if t.Sinks == nil || !t.Incoming(tr) {
 		return
 	}
+	_, staging := t.folders()
+
 	for index := range tr.Items {
 		key := transfer.Key{TransferID: tr.ID.String(), ItemIndex: index}
 		if err := t.Sinks.Discard(key); err != nil {
 			t.Log.Debug("discard staging", "transfer_id", tr.ID.String(), "item", index, "error", err)
+		}
+		// And by name, for the partials this process is not holding: a transfer
+		// abandoned before a restart, or one whose sink was released on the way
+		// to the failure that brought us here.
+		if err := transfer.DiscardStaged(staging, stagingKey(tr.ID, index)); err != nil {
+			t.Log.Debug("discard staged file", "transfer_id", tr.ID.String(), "item", index, "error", err)
 		}
 	}
 }

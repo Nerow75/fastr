@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/Nerow75/fastr/internal/app"
 	"github.com/Nerow75/fastr/internal/assets"
@@ -164,6 +165,13 @@ func run(args []string) error {
 			Log:      log,
 		},
 	}
+	// Before anything can ask for the queue: a transfer the previous run died
+	// holding would otherwise sit in the single active slot with nobody driving
+	// it, blocking every transfer behind it. FR-035e.
+	if _, err := transfers.Recover(); err != nil {
+		return err
+	}
+
 	pipes.OnDemand = func(key transfer.Key, offset uint64) {
 		events.Publish(httpapi.Event{
 			Type:       httpapi.EventTransferProgress,
@@ -231,7 +239,45 @@ func run(args []string) error {
 		fmt.Println("\nOpen one of the addresses above to use fastr.")
 	}
 
+	// The retention sweep, at startup and daily thereafter, per data-model.md.
+	// Started after the listeners so a page opened immediately is subscribed in
+	// time to hear what the first sweep removed.
+	sweeping := startSweeper(transfers, log)
+	defer sweeping()
+
 	return waitForShutdown(server, log)
+}
+
+// startSweeper runs the retention sweep now and once a day, and returns a
+// function that stops it.
+//
+// Daily rather than on a timer tied to the windows themselves: everything it
+// removes has been idle for a week or longer, so the difference between
+// sweeping at the exact hour and sweeping within a day of it is not something a
+// user could notice, and a fixed interval has no edge cases.
+func startSweeper(transfers *app.Transfers, log *slog.Logger) func() {
+	sweep := func() {
+		if _, err := transfers.Sweep(time.Now()); err != nil {
+			log.Error("retention sweep", "error", err)
+		}
+	}
+	sweep()
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				sweep()
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	return func() { close(done) }
 }
 
 // waitForShutdown blocks until the user stops the process, then releases the

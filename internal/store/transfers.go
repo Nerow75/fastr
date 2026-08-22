@@ -49,7 +49,11 @@ var transitions = map[State][]State{
 	StateQueued:             {StateAwaitingAcceptance, StateRunning, StateFailed, StateCancelled},
 	StateAwaitingAcceptance: {StateRunning, StateFailed, StateCancelled},
 	StateRunning:            {StateVerifying, StateInterrupted, StateFailed, StateCancelled},
-	StateVerifying:          {StateCompleted, StateFailed, StateCancelled},
+	// Verifying may fall back to interrupted, which only a crash can cause: the
+	// process died between the last byte and the checksum. The staged data is
+	// intact and the sender only has to ask for completion again, so ending the
+	// transfer there would throw away a complete file over a restart.
+	StateVerifying: {StateCompleted, StateInterrupted, StateFailed, StateCancelled},
 	// Interrupted is deliberately not terminal: it keeps its resume state and
 	// steps aside so the queue keeps moving. FR-035d.
 	StateInterrupted: {StateRunning, StateQueued, StateFailed, StateCancelled},
@@ -87,7 +91,12 @@ const (
 	CauseTrustedRequired   FailureCause = "trusted_mode_required"
 	CauseSourceUnreadable  FailureCause = "source_unreadable"
 	CauseDestinationFull   FailureCause = "destination_full"
-	CauseAbandoned         FailureCause = "abandoned"
+	// CauseDestinationUnwritable is a receive folder that cannot be written at
+	// all: read-only, permission denied, or no longer there. Distinct from
+	// destination_full because the corrective action is a different one, and
+	// FR-038 promises a corrective action rather than a category.
+	CauseDestinationUnwritable FailureCause = "destination_unwritable"
+	CauseAbandoned             FailureCause = "abandoned"
 )
 
 // TransferItem is one file inside a transfer.
@@ -145,6 +154,25 @@ type Transfer struct {
 	QueuedAt  time.Time  `json:"queued_at"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
+
+	// LastProgressAt is when bytes last moved. The retention sweep needs to tell
+	// a transfer nobody has touched in a week from one that is simply large and
+	// slow, and no other timestamp can: started_at is stamped once, and a
+	// 10 GB file over a bad link legitimately takes days.
+	LastProgressAt *time.Time `json:"last_progress_at,omitempty"`
+}
+
+// Idle reports how long a transfer has had no activity at all, which is the
+// question the retention sweep asks. It falls back through the timestamps that
+// exist rather than assuming any of them do.
+func (t Transfer) Idle(now time.Time) time.Duration {
+	last := t.QueuedAt
+	for _, at := range []*time.Time{t.StartedAt, t.LastProgressAt} {
+		if at != nil && at.After(last) {
+			last = *at
+		}
+	}
+	return now.Sub(last)
 }
 
 // Validate checks the rules from data-model.md.
@@ -282,6 +310,12 @@ func (s *Store) AdvanceItem(id ID, index int, committed uint64) error {
 		delta := committed - item.CommittedOffset
 		item.CommittedOffset = committed
 		t.TransferredBytes += delta
+
+		// Stamped here rather than by a caller, because this is the only place
+		// that knows bytes actually reached disk. The record is being rewritten
+		// anyway, so it costs nothing.
+		now := s.clock()
+		t.LastProgressAt = &now
 
 		return putJSON(tx, bucketTransfer, []byte(id), t)
 	})

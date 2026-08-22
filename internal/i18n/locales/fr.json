@@ -9,6 +9,8 @@
   "notification.received.one": "{name} reçu",
   "notification.received.many": "{count} fichiers reçus",
   "notification.received.body": "Enregistré dans {folder}",
+  "notification.swept.title": "fastr a supprimé {count} transferts inachevés",
+  "notification.swept.body": "Ils attendaient depuis plus de 7 jours. Ouvrez fastr pour voir ce qui a été supprimé.",
   "pairing.title": "Connecter ce téléphone",
   "pairing.scan_instruction": "Scannez le code affiché sur votre ordinateur, ou saisissez-le ci-dessous.",
   "pairing.invite_title": "Connecter un téléphone",

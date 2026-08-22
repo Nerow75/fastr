@@ -54,11 +54,37 @@ func (a *DesktopAnnouncer) NotifyReceived(itemCount int, firstName, folder strin
 			map[string]any{"count": itemCount})
 	}
 
-	n := platform.Notification{
+	a.show(platform.Notification{
 		Title: title,
 		Body:  a.Bundle.T(lang, "notification.received.body", map[string]any{"folder": folder}),
+	})
+}
+
+// NotifySwept says that the retention sweep removed something.
+//
+// FR-034 requires the user to be told, and the sweep runs at startup, which is
+// exactly when no page is open to be told through. It carries a count and the
+// reason, and nothing else: a sweep can take a dozen unrelated things, and the
+// interface has the list. The byte total is deliberately absent, because
+// formatting it here would mean a second size formatter that disagrees with the
+// browser's on the same number.
+func (a *DesktopAnnouncer) NotifySwept(count int) {
+	if a == nil || a.Bundle == nil || count <= 0 {
+		return
 	}
 
+	lang := a.Language
+	if lang == "" {
+		lang = i18n.DefaultLanguage
+	}
+
+	a.show(platform.Notification{
+		Title: a.Bundle.T(lang, "notification.swept.title", map[string]any{"count": count}),
+		Body:  a.Bundle.T(lang, "notification.swept.body", nil),
+	})
+}
+
+func (a *DesktopAnnouncer) show(n platform.Notification) {
 	show := a.Show
 	if show == nil {
 		show = platform.Notify

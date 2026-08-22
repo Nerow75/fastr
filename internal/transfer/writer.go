@@ -170,6 +170,20 @@ func (s *StagedFile) Discard() error {
 	return nil
 }
 
+// DiscardStaged removes an item's staging file without opening it.
+//
+// The sink-based path only reaches files this process is currently holding, and
+// most partial data is not: a transfer abandoned before a restart, or one whose
+// sink was already released, leaves a .part behind with nothing in memory
+// pointing at it. The retention sweep and every terminal transition need to
+// reach those, and the name is derived the same way CreateStaged derives it.
+func DiscardStaged(stagingDir, itemKey string) error {
+	if err := os.Remove(filepath.Join(stagingDir, itemKey+".part")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // crossDeviceMove copies then renames, for the case where staging and the
 // receive folder are on different filesystems.
 func crossDeviceMove(from, to string) error {

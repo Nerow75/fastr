@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -33,6 +34,10 @@ type SpaceChecker interface {
 // browser cannot reach: a transfer finishing while no page is open. Optional.
 type Announcer interface {
 	NotifyReceived(itemCount int, firstName, folder string)
+	// NotifySwept says that the retention sweep removed something. FR-034
+	// requires the user to be told, and a sweep runs at startup, which is
+	// exactly when no page is open to hear about it.
+	NotifySwept(count int)
 }
 
 // Transfers is the transfer service.
@@ -188,7 +193,11 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		Items:          items,
 		TotalBytes:     total,
 		State:          store.StateQueued,
-		QueuedAt:       time.Now(),
+		// The store's clock, not the wall clock: every other timestamp on this
+		// record comes from there, and a transfer whose queued_at disagreed with
+		// its started_at would confuse the retention sweep more than it would
+		// help anyone.
+		QueuedAt: t.Store.Now(),
 	}
 
 	if err := t.Store.PutTransfer(tr); err != nil {
@@ -393,6 +402,104 @@ func (t *Transfers) Cancel(id store.ID) error {
 
 	t.publish("transfer_cancelled", cancelled, nil)
 	return nil
+}
+
+// Recover repairs what a crash left behind, and reports how many transfers it
+// touched. FR-035e.
+//
+// Nothing is running when a process starts, so a stored transfer that says
+// `running` is a lie the previous process died holding, and a `verifying` one
+// is the same lie caught a moment later. Left alone they are worse than
+// cosmetic: the active slot is taken by a transfer nobody is driving, and
+// FR-035a's single-slot rule then blocks every real transfer behind a ghost.
+//
+// They become interrupted rather than failed. The committed offsets are exact
+// and the staged bytes are on disk, so this is precisely the state resume was
+// built for; failing them would throw away a partial 10 GB file because the
+// machine rebooted.
+func (t *Transfers) Recover() (int, error) {
+	all, err := t.Store.Transfers()
+	if err != nil {
+		return 0, Errorf(CodeInternal, err)
+	}
+
+	recovered := 0
+	for _, tr := range all {
+		if tr.State != store.StateRunning && tr.State != store.StateVerifying {
+			continue
+		}
+
+		if err := t.Store.SetTransferState(tr.ID, store.StateInterrupted, ""); err != nil {
+			t.Log.Warn("recover transfer", "transfer_id", tr.ID.String(), "error", err)
+			continue
+		}
+		// Requeued rather than dropped: it is still something the user asked
+		// for, and it goes behind whatever else is waiting rather than in front.
+		if err := t.Store.Deactivate(tr.ID, true); err != nil {
+			t.Log.Debug("deactivate", "transfer_id", tr.ID.String(), "error", err)
+		}
+		recovered++
+	}
+
+	if recovered > 0 {
+		t.Log.Info("recovered transfers left running by a previous run", "count", recovered)
+	}
+	return recovered, nil
+}
+
+// Sweep applies the retention windows and says what it took. FR-034.
+//
+// Order matters here, and only in one direction: the staging files of the
+// transfers about to be removed are released *before* the records go. A sink
+// still open holds a file handle, and Windows refuses to delete a file that
+// anything holds open, so a sweep in the other order would remove the record
+// and leave the bytes behind forever, with nothing left pointing at them.
+func (t *Transfers) Sweep(now time.Time) ([]store.Removal, error) {
+	doomed, err := t.Store.AbandonedTransfers(now)
+	if err != nil {
+		return nil, Errorf(CodeInternal, err)
+	}
+	for _, tr := range doomed {
+		t.discardStaging(tr)
+	}
+
+	removals, err := t.Store.Sweep(now)
+	if err != nil {
+		return nil, Errorf(CodeInternal, err)
+	}
+	if len(removals) == 0 {
+		return removals, nil
+	}
+
+	// Relay sessions record their staging path rather than deriving it, so they
+	// are the one kind whose bytes this layer cannot name in advance.
+	var bytes uint64
+	for _, r := range removals {
+		bytes += r.Bytes
+		if r.Path == "" {
+			continue
+		}
+		if err := os.Remove(r.Path); err != nil && !os.IsNotExist(err) {
+			t.Log.Warn("remove relay staging", "transfer_id", r.ID, "error", err)
+		}
+	}
+
+	t.Log.Info("retention sweep", "removed", len(removals), "bytes", bytes)
+
+	if t.Notify != nil {
+		t.Notify.NotifyTransfer("sweep_removed", "", map[string]any{
+			"removed": removals,
+			"count":   len(removals),
+			"bytes":   bytes,
+		})
+	}
+	// A sweep runs at startup, which is precisely when no page is listening.
+	// The event above reaches whoever is there; this reaches the user.
+	if t.Announce != nil {
+		t.Announce.NotifySwept(len(removals))
+	}
+
+	return removals, nil
 }
 
 // peerName resolves the other device's name for the history record, falling

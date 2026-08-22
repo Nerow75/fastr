@@ -83,8 +83,9 @@ Bucket: `transfers`. One send operation, whatever its direction.
 | `total_bytes` | uint64 | Sum of item sizes, known before start (FR-028). |
 | `transferred_bytes` | uint64 | Monotonic within an attempt, restored on resume. |
 | `state` | enum | See below. |
-| `failure_cause` | enum | Set only in `failed`. Maps to a translated message with a corrective action (FR-038). |
+| `failure_cause` | enum | Set only in `failed`. Maps to a translated message with a corrective action (FR-038). One of `insufficient_space`, `checksum_mismatch`, `network_lost`, `declined`, `acceptance_timeout`, `pairing_revoked`, `pairing_expired`, `relay_unavailable`, `trusted_mode_required`, `source_unreadable`, `destination_full`, `destination_unwritable`, `abandoned`. |
 | `queued_at`, `started_at`, `ended_at` | timestamp | |
+| `last_progress_at` | timestamp, nullable | When bytes last moved. The retention sweep uses it to tell a transfer nobody has touched in a week from one that is simply large and slow: `started_at` is stamped once, and a 10 GB file over a bad link legitimately takes days. Written by the same store update that advances a committed offset, so it costs nothing. |
 
 **State machine**
 
