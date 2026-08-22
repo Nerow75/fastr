@@ -48,7 +48,11 @@ function concat(...parts: Uint8Array[]): Uint8Array {
  * handshake identifier. Including it means a tampered public key produces a
  * different key rather than a silent downgrade.
  */
-function transcript(clientPublic: Uint8Array, serverPublic: Uint8Array, handshakeId: string): Uint8Array {
+function transcript(
+  clientPublic: Uint8Array,
+  serverPublic: Uint8Array,
+  handshakeId: string,
+): Uint8Array {
   return concat(clientPublic, serverPublic, new TextEncoder().encode(handshakeId));
 }
 
