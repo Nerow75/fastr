@@ -97,6 +97,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/transfers", d.authenticated(d.handleDeclareTransfer))
 	mux.Handle("GET /api/transfers/{id}", d.authenticated(d.handleGetTransfer))
 	mux.Handle("POST /api/transfers/{id}/cancel", d.authenticated(d.handleCancelTransfer))
+	// Only the target answers these; see acceptance_handlers.go.
+	mux.Handle("POST /api/transfers/{id}/accept", d.authenticated(d.handleAcceptTransfer))
+	mux.Handle("POST /api/transfers/{id}/decline", d.authenticated(d.handleDeclineTransfer))
 	mux.Handle("GET /api/transfers/{id}/waiting", d.authenticated(d.handlePendingSupply))
 	mux.Handle("GET /api/transfers/{id}/items/{index}/offset", d.authenticated(d.handleItemOffset))
 	mux.Handle("POST /api/transfers/{id}/items/{index}/complete", d.authenticated(d.handleCompleteItem))
@@ -107,6 +110,11 @@ func NewRouter(d Deps) http.Handler {
 	mux.Handle("POST /api/queue/reorder", d.authenticated(d.handleReorderQueue))
 	mux.Handle("DELETE /api/queue", d.authenticated(d.handleClearQueue))
 	mux.Handle("DELETE /api/queue/{id}", d.authenticated(d.handleRemoveFromQueue))
+
+	// The history of what has finished here, and the one thing the user can
+	// erase completely. See history_handlers.go.
+	mux.Handle("GET /api/history", d.authenticated(d.handleHistory))
+	mux.Handle("DELETE /api/history", loopbackOnly(d, d.authenticated(d.handleClearHistory).ServeHTTP))
 
 	// Bulk content. Not sealed in simple mode: constitution v2.0.1 is explicit
 	// that file content travels in the clear there, and the interface says so.

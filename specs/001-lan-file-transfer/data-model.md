@@ -91,7 +91,8 @@ Bucket: `transfers`. One send operation, whatever its direction.
 
 ```text
    queued ──► awaiting_acceptance ──► running ──► verifying ──► completed
-      │              │                   │            │
+      ▲              │                   │            │
+      └── accepted ──┤                   │            │
       │              │ declined          │ network    │ checksum mismatch
       │              │ or timeout        │ lost       │
       │              ▼                   ▼            ▼
@@ -138,6 +139,14 @@ Bucket: `queue`, an ordered list of Transfer identifiers.
 |---|---|---|
 | `entries` | []ULID | Order is user controlled (FR-035c). |
 | `active_id` | ULID | At most one, ever (FR-035a). |
+
+*Amended 2026-08-23:* accepting an `awaiting_acceptance` transfer returns it to
+`queued` rather than moving it straight to `running`. Acceptance and scheduling
+are different questions — an accepted transfer still waits its turn — and going
+directly to `running` would take the single active slot from whatever is already
+using it. `verifying` may also fall back to `interrupted`, which only a crash
+between the last byte and the checksum can cause; the staged data is intact and
+the sender only has to ask for completion again.
 
 **Rules**: exactly zero or one transfer is `running` at any moment. Reordering never touches the
 active entry. The queue is durable, so a restart resumes it or reports its entries as abandoned

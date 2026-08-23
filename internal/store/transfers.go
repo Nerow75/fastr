@@ -46,8 +46,12 @@ func (s State) Terminal() bool {
 // the caller, not a condition to tolerate: a transfer that reaches an
 // unexpected state is how a partial file gets presented as complete.
 var transitions = map[State][]State{
-	StateQueued:             {StateAwaitingAcceptance, StateRunning, StateFailed, StateCancelled},
-	StateAwaitingAcceptance: {StateRunning, StateFailed, StateCancelled},
+	StateQueued: {StateAwaitingAcceptance, StateRunning, StateFailed, StateCancelled},
+	// Back to queued when a human says yes, rather than straight to running.
+	// Acceptance and scheduling are different questions: an accepted transfer
+	// still has to wait its turn, and letting it jump to running would take the
+	// single active slot from whatever is already using it.
+	StateAwaitingAcceptance: {StateQueued, StateRunning, StateFailed, StateCancelled},
 	StateRunning:            {StateVerifying, StateInterrupted, StateFailed, StateCancelled},
 	// Verifying may fall back to interrupted, which only a crash can cause: the
 	// process died between the last byte and the checksum. The staged data is

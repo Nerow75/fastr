@@ -275,6 +275,12 @@ func run(args []string) error {
 	sweeping := startSweeper(transfers, log)
 	defer sweeping()
 
+	// FR-016d: a transfer waiting on a human is refused rather than queued
+	// indefinitely. Checked often, because the window is two minutes and a
+	// sender watching a spinner deserves an answer close to when it expires.
+	expiring := startAcceptanceExpiry(transfers, log)
+	defer expiring()
+
 	return waitForShutdown(server, log)
 }
 
@@ -350,6 +356,29 @@ func advertisableAddresses(bound []string) ([]net.IP, int) {
 		ips = append(ips, ip)
 	}
 	return ips, port
+}
+
+// startAcceptanceExpiry refuses transfers nobody answered, and returns a
+// function that stops it.
+func startAcceptanceExpiry(transfers *app.Transfers, log *slog.Logger) func() {
+	done := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if expired := transfers.ExpireAcceptances(time.Now()); expired > 0 {
+					log.Info("refused transfers nobody answered", "count", expired)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	return func() { close(done) }
 }
 
 // startSweeper runs the retention sweep now and once a day, and returns a

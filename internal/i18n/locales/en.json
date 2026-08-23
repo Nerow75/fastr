@@ -124,6 +124,7 @@
   "error.transfer_not_found": "That transfer no longer exists. It may have finished or been cleared.",
   "error.transfer_declined": "The other device declined the transfer.",
   "error.acceptance_timeout": "The other device did not answer in time. Try again when someone is there to accept.",
+  "error.awaiting_acceptance": "Waiting for the other device to accept. It will start on its own once someone there says yes.",
   "error.relay_unavailable": "The computer relaying this transfer is no longer available. The transfer will resume when it is back.",
   "error.device_unreachable": "Nothing answered at that address. Check the address shown on the other computer, and that fastr is running there.",
   "error.invalid_path": "The request named a location that is not allowed and was refused.",

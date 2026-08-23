@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/platform"
 	"github.com/Nerow75/fastr/internal/store"
 	"github.com/Nerow75/fastr/internal/transfer"
@@ -184,6 +185,25 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		direction = store.DirectionIncoming
 	}
 
+	// Whether these bytes may land on this disk unasked. Only for an incoming
+	// transfer: one this machine is merely piping between two browsers never
+	// touches the disk, so there is nothing for a human here to consent to.
+	state := store.StateQueued
+	if incoming {
+		now := t.Store.Now()
+		pair, err := t.Store.Pairing(sourceDeviceID)
+
+		switch pairing.Decide(pair, err, now) {
+		case pairing.Refuse:
+			return store.Transfer{}, New(CodeUnauthorized)
+		case pairing.Ask:
+			// FR-016a: the user set this device to ask every time, so it waits
+			// for a human rather than for the queue.
+			state = store.StateAwaitingAcceptance
+		case pairing.Start:
+		}
+	}
+
 	tr := store.Transfer{
 		ID:             store.NewID(),
 		Direction:      direction,
@@ -192,7 +212,7 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		ProtectionMode: store.ProtectionSimple,
 		Items:          items,
 		TotalBytes:     total,
-		State:          store.StateQueued,
+		State:          state,
 		// The store's clock, not the wall clock: every other timestamp on this
 		// record comes from there, and a transfer whose queued_at disagreed with
 		// its started_at would confuse the retention sweep more than it would
@@ -208,10 +228,94 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 	}
 
 	t.publish("transfer_queued", tr, nil)
-	t.Log.Info("transfer queued",
-		"transfer_id", tr.ID.String(), "items", len(items), "bytes", total)
+	t.Log.Info("transfer queued", "transfer_id", tr.ID.String(),
+		"items", len(items), "bytes", total, "state", string(state))
 
 	return tr, nil
+}
+
+// Accept lets an incoming transfer from an ask-every-time device run. FR-016a.
+//
+// Only the receiving device may accept, which is the whole point of the mode:
+// a sender that could accept on the recipient's behalf would make the setting
+// decorative.
+func (t *Transfers) Accept(id store.ID) (store.Transfer, error) {
+	tr, err := t.Get(id)
+	if err != nil {
+		return store.Transfer{}, err
+	}
+	// A transfer that ended cannot be accepted, and saying "fine" would tell the
+	// caller the opposite of the truth. The cause is carried through, so the
+	// interface can say whether nobody answered in time or somebody said no.
+	if tr.State.Terminal() {
+		switch tr.FailureCause {
+		case store.CauseAcceptanceTimeout:
+			return store.Transfer{}, New(CodeAcceptanceTimeout)
+		case store.CauseDeclined:
+			return store.Transfer{}, New(CodeDeclined)
+		default:
+			return store.Transfer{}, New(CodeTransferNotFound)
+		}
+	}
+	if tr.State != store.StateAwaitingAcceptance {
+		// Already accepted, or never needed accepting. Not an error: two taps
+		// on the same button should not produce a failure.
+		return tr, nil
+	}
+	if pairing.AcceptanceExpired(tr.QueuedAt, t.Store.Now()) {
+		t.Fail(id, store.CauseAcceptanceTimeout)
+		return store.Transfer{}, New(CodeAcceptanceTimeout)
+	}
+
+	if err := t.Store.SetTransferState(id, store.StateQueued, ""); err != nil {
+		return store.Transfer{}, Errorf(CodeInternal, err)
+	}
+
+	accepted, _ := t.Store.Transfer(id)
+	t.publish("transfer_queued", accepted, map[string]any{"accepted": true})
+	return accepted, nil
+}
+
+// Decline refuses an incoming transfer. FR-016a, and FR-038: the sender is told
+// why rather than left watching a transfer that never starts.
+func (t *Transfers) Decline(id store.ID) error {
+	tr, err := t.Get(id)
+	if err != nil {
+		return err
+	}
+	if tr.State.Terminal() {
+		return nil
+	}
+	t.Fail(id, store.CauseDeclined)
+	return nil
+}
+
+// ExpireAcceptances fails every transfer that waited too long for an answer,
+// and reports how many.
+//
+// FR-016d: an unanswered transfer is refused rather than queued indefinitely.
+// Without this, a phone sending to a computer nobody is sitting at would hold
+// the sender's attention forever, and its entry would sit in a queue that runs
+// one thing at a time.
+func (t *Transfers) ExpireAcceptances(now time.Time) int {
+	all, err := t.Store.Transfers()
+	if err != nil {
+		t.Log.Warn("expire acceptances", "error", err)
+		return 0
+	}
+
+	expired := 0
+	for _, tr := range all {
+		if tr.State != store.StateAwaitingAcceptance {
+			continue
+		}
+		if !pairing.AcceptanceExpired(tr.QueuedAt, now) {
+			continue
+		}
+		t.Fail(tr.ID, store.CauseAcceptanceTimeout)
+		expired++
+	}
+	return expired
 }
 
 // Get returns a transfer.

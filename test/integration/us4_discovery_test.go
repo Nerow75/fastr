@@ -354,6 +354,7 @@ type deviceListBody struct {
 		Name      string `json:"name"`
 		Paired    bool   `json:"paired"`
 		Connected bool   `json:"connected"`
+		TrustMode string `json:"trust_mode"`
 	} `json:"devices"`
 	Discovered []struct {
 		ID        string   `json:"id"`

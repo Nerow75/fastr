@@ -68,6 +68,12 @@ func (t *Transfers) Receive(
 	if tr.State.Terminal() {
 		return 0, New(CodeTransferNotFound)
 	}
+	// FR-016a: an ask-every-time device waits for a human, and nothing it sends
+	// reaches the disk before one answers. The sender is told to wait rather
+	// than told it failed.
+	if tr.State == store.StateAwaitingAcceptance {
+		return 0, New(CodeAwaitingAcceptance)
+	}
 
 	if tr.State == store.StateQueued || tr.State == store.StateInterrupted {
 		if err := t.Start(tr.ID); err != nil {

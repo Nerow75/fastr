@@ -44,7 +44,10 @@ const (
 	CodeTransferNotFound  Code = "transfer_not_found"
 	CodeDeclined          Code = "transfer_declined"
 	CodeAcceptanceTimeout Code = "acceptance_timeout"
-	CodeRelayUnavailable  Code = "relay_unavailable"
+	// CodeAwaitingAcceptance means the recipient has been asked and has not
+	// answered yet. Retryable, like a busy queue: waiting is the right response.
+	CodeAwaitingAcceptance Code = "awaiting_acceptance"
+	CodeRelayUnavailable   Code = "relay_unavailable"
 
 	// Discovery.
 	CodeDeviceUnreachable Code = "device_unreachable"
@@ -78,14 +81,15 @@ var catalogue = map[Code]entry{
 	CodeRateLimited:   {http.StatusTooManyRequests, "error.rate_limited", false},
 	CodeReplay:        {http.StatusBadRequest, "error.replay_detected", true},
 
-	CodeInsufficientSpace: {http.StatusConflict, "error.insufficient_space", false},
-	CodeChecksumMismatch:  {http.StatusUnprocessableEntity, "error.checksum_mismatch", true},
-	CodeOffsetMismatch:    {http.StatusConflict, "error.offset_mismatch", false},
-	CodeQueueBusy:         {http.StatusConflict, "error.queue_busy", false},
-	CodeTransferNotFound:  {http.StatusNotFound, "error.transfer_not_found", false},
-	CodeDeclined:          {http.StatusForbidden, "error.transfer_declined", false},
-	CodeAcceptanceTimeout: {http.StatusRequestTimeout, "error.acceptance_timeout", false},
-	CodeRelayUnavailable:  {http.StatusServiceUnavailable, "error.relay_unavailable", false},
+	CodeInsufficientSpace:  {http.StatusConflict, "error.insufficient_space", false},
+	CodeChecksumMismatch:   {http.StatusUnprocessableEntity, "error.checksum_mismatch", true},
+	CodeOffsetMismatch:     {http.StatusConflict, "error.offset_mismatch", false},
+	CodeQueueBusy:          {http.StatusConflict, "error.queue_busy", false},
+	CodeTransferNotFound:   {http.StatusNotFound, "error.transfer_not_found", false},
+	CodeDeclined:           {http.StatusForbidden, "error.transfer_declined", false},
+	CodeAcceptanceTimeout:  {http.StatusRequestTimeout, "error.acceptance_timeout", false},
+	CodeAwaitingAcceptance: {http.StatusConflict, "error.awaiting_acceptance", false},
+	CodeRelayUnavailable:   {http.StatusServiceUnavailable, "error.relay_unavailable", false},
 
 	CodeDeviceUnreachable: {http.StatusNotFound, "error.device_unreachable", false},
 

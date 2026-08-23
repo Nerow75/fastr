@@ -124,6 +124,7 @@
   "error.transfer_not_found": "Ce transfert n'existe plus. Il est peut-être terminé ou effacé.",
   "error.transfer_declined": "L'autre appareil a refusé le transfert.",
   "error.acceptance_timeout": "L'autre appareil n'a pas répondu à temps. Réessayez quand quelqu'un est là pour accepter.",
+  "error.awaiting_acceptance": "En attente d’acceptation par l’autre appareil. Le transfert démarrera dès que quelqu’un aura accepté.",
   "error.relay_unavailable": "L'ordinateur qui relaie ce transfert n'est plus disponible. Le transfert reprendra à son retour.",
   "error.device_unreachable": "Rien n’a répondu à cette adresse. Vérifiez l’adresse affichée sur l’autre ordinateur, et que fastr y est bien lancé.",
   "error.invalid_path": "La requête désignait un emplacement non autorisé et a été refusée.",
