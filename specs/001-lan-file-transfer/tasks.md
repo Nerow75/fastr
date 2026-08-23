@@ -324,6 +324,7 @@ Three pieces of work were needed that no task named:
 - [ ] T133 [P] Implement the service worker performing streamed decryption in `web/src/sw/decrypt.ts`, registered in trusted mode only
 - [ ] T134 [P] Build the guided setup walkthrough covering iOS full trust and Android user CA in `web/src/lib/TrustedSetup.svelte`
 - [ ] T135 Verify both setup flows on real Android and iOS hardware and record the findings in `specs/001-lan-file-transfer/research.md`, per research item 4
+- [ ] T137b Restrict the certificate authority's private key on Windows, in `internal/trust/` with a platform file. **Found by CI, not by design.** Windows does not implement POSIX permission bits: the key is written with 0600 and reports 0666, because access there is decided by an ACL this code never sets. In practice it inherits the ACL of `%LOCALAPPDATA%`, which is user-only on a default installation — but that is the operating system's arrangement rather than a guarantee fastr makes, and this is the most sensitive artefact in the product: anything holding it can impersonate any site to every phone that installed the authority. Needs `windows.SetNamedSecurityInfo` with an explicit DACL, and a Windows-only test asserting the resulting DACL names only the current user. **Blocks trusted mode on Windows**, not the rest of it; Principle IV would otherwise be satisfied only in letter.
 - [ ] T136 Add translations for every string introduced by trusted mode to `web/src/locales/en.json` and `web/src/locales/fr.json`
 
 ---

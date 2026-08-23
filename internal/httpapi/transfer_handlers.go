@@ -28,6 +28,9 @@ type declareRequest struct {
 		RelativePath string `json:"relative_path,omitempty"`
 		Size         uint64 `json:"size"`
 	} `json:"items"`
+	// AcceptDowngrade is the sender having been told the transfer would drop
+	// out of trusted mode, and having said to go ahead. FR-047e.
+	AcceptDowngrade bool `json:"accept_downgrade,omitempty"`
 }
 
 type transferView struct {
@@ -80,7 +83,13 @@ func (d Deps) handleDeclareTransfer(s *Session, w http.ResponseWriter, r *http.R
 		return
 	}
 
-	decl := app.Declaration{TargetDeviceID: req.TargetDeviceID}
+	decl := app.Declaration{
+		TargetDeviceID: req.TargetDeviceID,
+		// From the connection, never from the body: a header a phone could set
+		// must not be able to claim a protection it does not have.
+		Trusted:         TrustedRequest(r),
+		AcceptDowngrade: req.AcceptDowngrade,
+	}
 	for _, item := range req.Items {
 		decl.Items = append(decl.Items, app.DeclaredItem{
 			Name: item.Name, RelativePath: item.RelativePath, Size: item.Size,

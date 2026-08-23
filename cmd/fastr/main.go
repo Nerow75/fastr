@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 	"github.com/Nerow75/fastr/internal/platform"
 	"github.com/Nerow75/fastr/internal/store"
 	"github.com/Nerow75/fastr/internal/transfer"
+	"github.com/Nerow75/fastr/internal/trust"
 )
 
 // version is set at build time from the git description. See the Makefile.
@@ -225,10 +225,24 @@ func run(args []string) error {
 			}
 			return server.Addresses()
 		},
-		// Trusted mode has its own listener, which does not exist yet. Until
-		// it does, no request is trusted, and a device that requires trusted
-		// mode is refused with an explanation rather than quietly downgraded.
-		Trusted:   func(*http.Request) bool { return false },
+		// Whether a request arrived over the trusted listener. Read from the
+		// connection, never from a header: a phone must not be able to claim a
+		// protection it does not have.
+		Trusted:  httpapi.TrustedRequest,
+		TrustDir: filepath.Join(dataDir, "trust"),
+		TrustedAddresses: func() []string {
+			if server == nil {
+				return nil
+			}
+			return server.TrustedAddresses()
+		},
+		EnableTrusted: func(certificate *trust.Certificate) error {
+			pair, err := certificate.TLS()
+			if err != nil {
+				return err
+			}
+			return server.StartTrusted(pair)
+		},
 		Discovery: browser,
 		Browser:   browser,
 		Prober:    prober,
@@ -269,6 +283,13 @@ func run(args []string) error {
 		fmt.Println("\nOpen one of the addresses above to use fastr.")
 	}
 
+	// Trusted mode, when it has been set up before. Never created here: an
+	// authority is generated only when the user asks for one, because
+	// installing it on a phone is a real decision and a key that exists is a
+	// key that can leak. A failure is logged and nothing else — the plain
+	// listener is already serving, and trusted mode is an addition to it.
+	startTrustedIfConfigured(filepath.Join(dataDir, "trust"), server, log)
+
 	// The retention sweep, at startup and daily thereafter, per data-model.md.
 	// Started after the listeners so a page opened immediately is subscribed in
 	// time to hear what the first sweep removed.
@@ -282,6 +303,36 @@ func run(args []string) error {
 	defer expiring()
 
 	return waitForShutdown(server, log)
+}
+
+// startTrustedIfConfigured serves trusted mode when an authority already
+// exists, reissuing the certificate for wherever this machine now answers.
+//
+// Reissuing on every start is the intended use rather than a fallback: the
+// certificate names addresses, and a DHCP lease moves, a laptop joins another
+// network, a cable becomes Wi-Fi. A certificate for an address this machine no
+// longer holds is worse than useless.
+func startTrustedIfConfigured(dir string, server *httpapi.Server, log *slog.Logger) {
+	authority, err := trust.Load(dir)
+	if err != nil {
+		// Never set up, which is the ordinary state and not worth a word.
+		return
+	}
+
+	certificate, err := authority.Issue(server.Addresses())
+	if err != nil {
+		log.Info("trusted mode is set up but cannot be served here", "error", err)
+		return
+	}
+
+	pair, err := certificate.TLS()
+	if err != nil {
+		log.Error("trusted mode certificate", "error", err)
+		return
+	}
+	if err := server.StartTrusted(pair); err != nil {
+		log.Error("trusted mode listener", "error", err)
+	}
 }
 
 // startDiscovery advertises this instance and begins looking for others.

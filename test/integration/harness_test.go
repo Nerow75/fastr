@@ -50,6 +50,7 @@ type harness struct {
 	selfID     string
 	receiveDir string
 	stagingDir string
+	trustDir   string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -80,6 +81,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	receiveDir, stagingDir := t.TempDir(), t.TempDir()
+	trustDir := filepath.Join(t.TempDir(), "trust")
 
 	pipes := transfer.NewPipes()
 	sinks := transfer.NewSinks()
@@ -109,6 +111,11 @@ func newHarness(t *testing.T) *harness {
 	// not broken. Tests that care put something else here.
 	seen := &swappableDiscovery{inner: idleDiscovery{}}
 
+	// Declared before the router and assigned after, the way the binary does
+	// it: the address does not exist until something is listening, and the
+	// closure reads it at call time.
+	var srv *httptest.Server
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Log:        logger,
 		Store:      st,
@@ -124,9 +131,18 @@ func newHarness(t *testing.T) *harness {
 		DeviceID:   selfID,
 		Trusted:    func(*http.Request) bool { return false },
 		Discovery:  seen,
+		Addresses: func() []string {
+			if srv == nil {
+				return nil
+			}
+			return []string{srv.Listener.Addr().String()}
+		},
+		// A directory for the certificate authority, created only if a test
+		// asks for one. Trusted mode is opt-in, so an unused harness has none.
+		TrustDir: trustDir,
 	})
 
-	srv := httptest.NewServer(router)
+	srv = httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
 	return &harness{
@@ -134,6 +150,7 @@ func newHarness(t *testing.T) *harness {
 		sessions: sessions, events: events, tickets: tickets, pendings: pendings, pipes: pipes, transfers: transfers,
 		logs: logs, scrubber: scrubber, discovery: seen,
 		selfID: selfID, receiveDir: receiveDir, stagingDir: stagingDir,
+		trustDir: trustDir,
 	}
 }
 

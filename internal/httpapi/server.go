@@ -30,6 +30,13 @@ type Server struct {
 	srv       *http.Server
 	running   bool
 	addrs     []string
+
+	// Trusted mode runs beside the plain listener rather than replacing it, so
+	// a phone that never set it up keeps working exactly as before (FR-047d).
+	// Nil until a certificate exists. See tls_listener.go.
+	trustedSrv       *http.Server
+	trustedListeners []net.Listener
+	trustedAddrs     []string
 }
 
 // Options configures a server.
@@ -126,8 +133,9 @@ func (s *Server) Start(interfaces []string, port int) error {
 // Stop shuts the server down, waiting briefly for in-flight requests.
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	srv, running := s.srv, s.running
+	srv, trusted, running := s.srv, s.trustedSrv, s.running
 	s.srv, s.listeners, s.addrs, s.running = nil, nil, nil, false
+	s.trustedSrv, s.trustedListeners, s.trustedAddrs = nil, nil, nil
 	s.mu.Unlock()
 
 	if !running {
@@ -136,6 +144,14 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	ctx, cancel := context.WithTimeout(ctx, shutdownGrace)
 	defer cancel()
+
+	// Both, and the trusted one first: a phone mid-transfer over TLS should be
+	// let go before the port it would fall back to disappears.
+	if trusted != nil {
+		if err := trusted.Shutdown(ctx); err != nil {
+			s.log.Debug("trusted shutdown", "error", err)
+		}
+	}
 
 	err := srv.Shutdown(ctx)
 	s.log.Info("stopped listening")

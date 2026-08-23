@@ -135,6 +135,8 @@
   "error.pairing_revoked": "Access was removed for this device. Pair it again to continue.",
   "error.pairing_expired": "This pairing expired after a long period without use. Pair the device again.",
   "error.trusted_mode_required": "This device only accepts trusted mode. Finish the trusted mode setup, then try again.",
+  "error.no_local_address": "This computer is not on a network, so there is nothing for a phone to connect to. Connect it to your Wi-Fi, then try again.",
+  "error.would_downgrade": "This device has been sending with trusted mode, and this transfer would not be. Its content would be readable on this network. Set trusted mode up again, or send anyway.",
   "error.invalid_pairing_code": "That code is not right. Check the code shown on the computer and try again.",
   "error.pairing_code_expired": "That code has expired. Ask the computer for a new one.",
   "error.pairing_code_exhausted": "Too many wrong attempts, so that code was cancelled. Ask the computer for a new one.",

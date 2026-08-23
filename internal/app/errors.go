@@ -28,6 +28,12 @@ const (
 	CodePairingRevoked  Code = "pairing_revoked"
 	CodePairingExpired  Code = "pairing_expired"
 	CodeTrustedRequired Code = "trusted_mode_required"
+	// CodeWouldDowngrade means the transfer would drop from trusted to simple.
+	// Answerable: the user may confirm and send anyway. FR-047e.
+	CodeWouldDowngrade Code = "would_downgrade"
+	// CodeNoLocalAddress means this machine is not on a network, so there is
+	// nothing for a phone to reach and nothing to issue a certificate for.
+	CodeNoLocalAddress Code = "no_local_address"
 
 	// Pairing.
 	CodeInvalidCode   Code = "invalid_pairing_code"
@@ -77,6 +83,8 @@ var catalogue = map[Code]entry{
 	CodePairingRevoked:  {http.StatusUnauthorized, "error.pairing_revoked", false},
 	CodePairingExpired:  {http.StatusUnauthorized, "error.pairing_expired", false},
 	CodeTrustedRequired: {http.StatusUpgradeRequired, "error.trusted_mode_required", false},
+	CodeWouldDowngrade:  {http.StatusUpgradeRequired, "error.would_downgrade", false},
+	CodeNoLocalAddress:  {http.StatusConflict, "error.no_local_address", false},
 
 	CodeInvalidCode:   {http.StatusUnauthorized, "error.invalid_pairing_code", false},
 	CodeCodeExpired:   {http.StatusGone, "error.pairing_code_expired", false},

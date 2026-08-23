@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,9 +51,17 @@ func TestAnAuthorityIsCreatedOnceAndReused(t *testing.T) {
 
 // The key is the whole of the trust a user extends when they install the
 // certificate. It is written where only this user can read it.
+//
+// **On Windows this asserts nothing, and that is a real gap rather than a
+// detail of the test.** Windows does not implement POSIX permission bits: a
+// file written with 0600 reports 0666, because access is decided by an ACL this
+// code never sets. In practice the key inherits the ACL of %LOCALAPPDATA%,
+// which is user-only on a default installation — but that is the operating
+// system's arrangement, not a guarantee fastr makes. T137b is the work to make
+// it one.
 func TestTheAuthorityKeyIsNotReadableByAnyoneElse(t *testing.T) {
-	if os.Getenv("GOOS") == "windows" {
-		t.Skip("POSIX permission bits do not describe Windows access control")
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows decides access by ACL, not by permission bits; see T137b")
 	}
 
 	dir := filepath.Join(t.TempDir(), "trust")

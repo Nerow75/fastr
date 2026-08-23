@@ -135,6 +135,8 @@
   "error.pairing_revoked": "L'accès de cet appareil a été retiré. Appairez-le à nouveau pour continuer.",
   "error.pairing_expired": "Cet appairage a expiré après une longue période sans usage. Appairez l'appareil à nouveau.",
   "error.trusted_mode_required": "Cet appareil n'accepte que le mode de confiance. Terminez sa configuration, puis réessayez.",
+  "error.no_local_address": "Cet ordinateur n’est sur aucun réseau : un téléphone n’a rien à joindre. Connectez-le à votre Wi-Fi, puis réessayez.",
+  "error.would_downgrade": "Cet appareil envoyait jusqu’ici en mode de confiance, ce qui ne serait pas le cas de ce transfert : son contenu serait lisible sur ce réseau. Reconfigurez le mode de confiance, ou envoyez quand même.",
   "error.invalid_pairing_code": "Ce code n'est pas le bon. Vérifiez celui affiché sur l'ordinateur et réessayez.",
   "error.pairing_code_expired": "Ce code a expiré. Demandez-en un nouveau à l'ordinateur.",
   "error.pairing_code_exhausted": "Trop de tentatives erronées, ce code a été annulé. Demandez-en un nouveau à l'ordinateur.",

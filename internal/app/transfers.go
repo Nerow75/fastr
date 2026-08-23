@@ -102,6 +102,15 @@ func (t *Transfers) folders() (receive, staging string) {
 type Declaration struct {
 	TargetDeviceID string
 	Items          []DeclaredItem
+
+	// Trusted reports whether the declaration arrived over the trusted
+	// listener. It decides the transfer's protection mode, and it is taken from
+	// the connection rather than from anything the sender said.
+	Trusted bool
+	// AcceptDowngrade is the user having been asked and having said yes.
+	// FR-047e: a transfer never drops from trusted to simple silently, but it
+	// may drop when somebody chose to.
+	AcceptDowngrade bool
 }
 
 // DeclaredItem is one file in a proposal.
@@ -125,6 +134,14 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 	}
 	if d.TargetDeviceID == "" || d.TargetDeviceID == sourceDeviceID {
 		return store.Transfer{}, New(CodeInvalidRequest)
+	}
+
+	// FR-047e: never silently. A device that has been using trusted mode and is
+	// now asking in the clear is either on a different network or has lost its
+	// certificate, and either way the user gets to decide rather than find out
+	// afterwards.
+	if err := t.checkDowngrade(sourceDeviceID, d); err != nil {
+		return store.Transfer{}, err
 	}
 
 	// A transfer aimed at this machine is written here. One from this machine to
@@ -231,13 +248,18 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		}
 	}
 
+	protection := store.ProtectionSimple
+	if d.Trusted {
+		protection = store.ProtectionTrusted
+	}
+
 	tr := store.Transfer{
 		ID:             store.NewID(),
 		Direction:      direction,
 		SourceDeviceID: sourceDeviceID,
 		TargetDeviceID: d.TargetDeviceID,
 		RelayDeviceID:  relayID,
-		ProtectionMode: store.ProtectionSimple,
+		ProtectionMode: protection,
 		Items:          items,
 		TotalBytes:     total,
 		State:          state,
@@ -673,4 +695,54 @@ func (t *Transfers) publish(kind string, tr store.Transfer, payload map[string]a
 		}
 	}
 	t.Notify.NotifyTransfer(kind, tr.ID, payload)
+}
+
+// ErrWouldDowngrade reports a transfer that would drop from trusted mode to
+// simple without anyone having said so.
+//
+// FR-047e exists because the failure is silent by nature: the transfer works,
+// the file arrives, and the only difference is that the content crossed the
+// network readable when the user had every reason to believe it would not. A
+// protection that can quietly stop applying is not one anybody can rely on.
+var ErrWouldDowngrade = errors.New("this device has been using trusted mode")
+
+// checkDowngrade refuses a plain-mode transfer from a device that has been
+// using trusted mode, unless the user has said to go ahead.
+//
+// Refused rather than upgraded: this machine cannot make the sender's
+// connection secure, and pretending otherwise is the exact dishonesty
+// Principle V forbids.
+func (t *Transfers) checkDowngrade(sourceDeviceID string, d Declaration) error {
+	if d.Trusted {
+		return nil // nothing is falling
+	}
+
+	p, err := t.Store.Pairing(sourceDeviceID)
+	if errors.Is(err, store.ErrNotFound) {
+		// No pairing, so there is nothing to fall from. Whether this device may
+		// be here at all is the session layer's question, and it answered it
+		// before the request reached this far.
+		return nil
+	}
+	if err != nil {
+		// A real store failure. Guessing "no downgrade" from a read that did
+		// not work is how a protection quietly stops applying.
+		return Errorf(CodeInternal, err)
+	}
+
+	// Checked *before* the confirmation, not after. The user set this device to
+	// never connect in the clear, and a confirmation on one transfer is not a
+	// reason to override a standing instruction — otherwise the setting would
+	// mean "ask me", which is what the other one already means. FR-047c.
+	if p.RequireTrusted {
+		return New(CodeTrustedRequired)
+	}
+
+	if p.ProtectionMode != store.ProtectionTrusted {
+		return nil // never been trusted, so there is nothing to fall from
+	}
+	if d.AcceptDowngrade {
+		return nil // asked, and answered
+	}
+	return Errorf(CodeWouldDowngrade, ErrWouldDowngrade)
 }

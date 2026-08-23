@@ -15,6 +15,7 @@ import (
 	"github.com/Nerow75/fastr/internal/discovery"
 	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/store"
+	"github.com/Nerow75/fastr/internal/trust"
 )
 
 // Deps is everything the handlers need.
@@ -44,6 +45,16 @@ type Deps struct {
 	// and whether looking is working at all. Optional, and nil is a working
 	// configuration — a machine with no multicast still transfers files, which
 	// is why nothing here is allowed to be required.
+	// TrustDir is where the local certificate authority lives. Empty disables
+	// trusted mode entirely, which is a working configuration: it is opt-in.
+	TrustDir string
+	// TrustedAddresses reports where the TLS listener answers, or nothing.
+	TrustedAddresses func() []string
+	// EnableTrusted starts the TLS listener with a freshly issued certificate.
+	// Nil means trusted mode can be set up but not served, which is what a test
+	// without a listener looks like.
+	EnableTrusted func(*trust.Certificate) error
+
 	Discovery Discovery
 	// Browser and Prober are the write side, needed only by manual entry. They
 	// are the concrete types because adding a device by hand probes it, and
@@ -61,6 +72,13 @@ func NewRouter(d Deps) http.Handler {
 	// broadcasts to anyone on the network.
 	mux.HandleFunc("GET /connect", d.handleConnect)
 	mux.HandleFunc("GET /qr", d.handleQR)
+
+	// The authority a phone installs to reach trusted mode. Unauthenticated on
+	// purpose: the phone needs it *before* it can be trusted, a certificate is
+	// public by nature, and it is inert without the key that never leaves this
+	// machine. The fingerprint shown on the computer is what makes installing
+	// it a checkable act rather than a leap.
+	mux.HandleFunc("GET /trust/ca.crt", d.handleCertificate)
 
 	// Pairing. These cannot require a session, because their purpose is to
 	// create one. They are protected by the code and the handshake instead.
@@ -115,6 +133,13 @@ func NewRouter(d Deps) http.Handler {
 	// erase completely. See history_handlers.go.
 	// What is passing through this machine on its way between two phones.
 	// Loopback only: the answer names two other people's devices and files.
+	// Trusted mode. Creating an authority is the computer owner's decision and
+	// never a phone's, so init is loopback only; status and verify are the
+	// phone's own, and verify can only succeed over the TLS listener.
+	mux.Handle("POST /api/trust/init", loopbackOnly(d, d.handleTrustInit))
+	mux.Handle("GET /api/trust/status", d.authenticated(d.handleTrustStatus))
+	mux.Handle("POST /api/trust/verify", d.authenticated(d.handleTrustVerify))
+
 	mux.Handle("GET /api/relayed", loopbackOnly(d, d.authenticated(d.handleRelayed).ServeHTTP))
 
 	mux.Handle("GET /api/history", d.authenticated(d.handleHistory))
