@@ -376,14 +376,9 @@ test. *(Done on 2026-08-22; see the entry above.)*
   `/api/queue`, which does not exist yet. `web/tests/e2e/fixtures.ts` waits for
   the event stream before sending purely to step around this; delete that wait
   when T087b lands.
-- **The `Lint` CI job has never actually run.** `golangci-lint-action@v6`
-  installs a binary built with Go 1.24, which refuses a config targeting Go
-  1.27. Fixing the action is one line — and will then surface **24 pre-existing
-  issues** (mostly `gosec` on file permissions) measured locally. That trades a
-  configuration red for an honest red; clearing the backlog is a real piece of
-  work. A decision, not an oversight.
-- **Prettier** wants three files reformatted that nothing in this session
-  touched: `web/src/crypto/envelope.ts`, `handshake.ts`, `lib/transfers.ts`.
+- ~~**The `Lint` CI job has never actually run.**~~ Fixed 2026-08-23; see that
+  entry. It runs, and it is clean.
+- ~~**Prettier** wants three files reformatted.~~ Done; the tree is clean.
 - **T042b**, the tray icon, and **T139**, its graceful degradation. Neither is
   verifiable without a desktop session.
 - **T047b**, the 10 GB memory-flatness run. The property is proven at the engine
