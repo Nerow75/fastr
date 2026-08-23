@@ -189,14 +189,34 @@ export async function readPairingCode(page: Page): Promise<string> {
  * session on load, because it is the machine rather than a device asking to be
  * let in; it used to have to pair with itself, and nobody ever found that step.
  */
-export async function pair(desktop: Page, client: Page, deviceName: string): Promise<void> {
+export interface PairingLabels {
+  /** The pairing form's accessible name, on the client. */
+  form: string;
+  /** The submit button on the client. */
+  submit: string;
+}
+
+/** What the pairing screen is called in each language it ships in. */
+export const LABELS: Record<'en' | 'fr', PairingLabels> = {
+  en: { form: 'Connect this phone', submit: 'Connect' },
+  fr: { form: 'Connecter ce téléphone', submit: 'Connecter' },
+};
+
+export async function pair(
+  desktop: Page,
+  client: Page,
+  deviceName: string,
+  labels: PairingLabels = LABELS.en,
+): Promise<void> {
   const code = await readPairingCode(desktop);
 
-  const form = client.getByRole('region', { name: 'Connect this phone', exact: true });
+  // Named in the client's own language: a fixture that only knows English can
+  // only pair an English device, and the interface ships in two.
+  const form = client.getByRole('region', { name: labels.form, exact: true });
 
   await form.locator('#pairing-code').fill(code);
   await form.locator('#device-name').fill(deviceName);
-  await form.getByRole('button', { name: 'Connect', exact: true }).click();
+  await form.getByRole('button', { name: labels.submit, exact: true }).click();
 
   // The request is queued, not granted: FR-010 wants a human on the receiving
   // device to say yes, and this is that human.
@@ -225,6 +245,21 @@ export async function pair(desktop: Page, client: Page, deviceName: string): Pro
   // connect, so the event was lost and the phone sat there showing nothing.
   // T087b closed that, and removing the wait is how these tests prove it — a
   // send that begins before the stream is up now reaches the phone anyway.
+}
+
+/**
+ * Opens the computer's own page, in a context of its own.
+ *
+ * A context rather than `browser.newPage()`, which creates an implicit one:
+ * axe-core refuses to run against a page from an implicit context, and having
+ * the desktop and the phone built the same way keeps that from being a
+ * surprise in one file only.
+ */
+export async function openDesktop(browser: Browser, instance: Instance): Promise<Page> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(instance.desktopURL);
+  return page;
 }
 
 /** Opens a page as a device on the far side of the network. */

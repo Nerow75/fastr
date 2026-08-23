@@ -108,6 +108,10 @@
 
   onMount(() => {
     installLiveRegions();
+    // The language is already set, in main.ts, before this component existed:
+    // `t()` reads a module variable that nothing re-runs, so doing it here left
+    // a French device reading an English interface. This stays as the place
+    // that re-applies it if a stored override changed while the page was open.
     setLanguage(negotiate(localStorage.getItem('fastr.language')));
 
     if (!desktop) void loadHost();

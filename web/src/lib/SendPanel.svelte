@@ -149,13 +149,30 @@
         </button>
       </div>
 
-      <input bind:this={picker} type="file" multiple onchange={onPicked} class="sr-only" />
+      <!--
+        Hidden from assistive technology, not just from view. The button beside
+        each of these is the control: a screen reader user meeting both would
+        find two things that do one job, and the input is the one with no name.
+        `tabindex="-1"` goes with `aria-hidden`, because hiding something that
+        can still be focused is its own failure.
+      -->
+      <input
+        bind:this={picker}
+        type="file"
+        multiple
+        onchange={onPicked}
+        class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
+      />
       <input
         bind:this={folderPicker}
         type="file"
         webkitdirectory
         onchange={onPicked}
         class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
       />
     </div>
 

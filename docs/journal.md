@@ -8,6 +8,69 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-23 — The audits, and the two things they found
+
+Tasks: 141 → 146 of 159.
+
+Four audits: accessibility, announcements, translations, and honesty about
+simple mode. Each is the kind of test that looks like bookkeeping until it runs,
+and two of them found defects nothing else could have.
+
+### French was decorative
+
+The catalogue was complete. Negotiation picked French correctly. `<html
+lang="fr">` was set. And the interface rendered **English**.
+
+`t()` reads a plain module variable, and the language was set in the shell's
+`onMount` — after every component had already rendered with the default.
+Nothing re-runs when that variable changes, so the second catalogue was a file
+nobody ever saw. Every catalogue test passed throughout, because they compare
+the catalogues to each other and never to a screen.
+
+Setting the language before the first render fixes it. A *runtime* override
+(FR-039b) needs more: the current language has to be reactive state rather than
+a module variable. There is no override control yet, and the note is where the
+person who builds one will look.
+
+### An unnamed control, at critical severity
+
+The hidden file inputs behind "Choose files" had no accessible name. They are
+visually hidden but were still in the accessibility tree, so somebody using a
+screen reader met an unlabelled file input next to a button that does the same
+thing.
+
+Hidden from assistive technology now rather than labelled, because two controls
+doing one job is worse for that person, not better — with `tabindex="-1"`, since
+hiding something still focusable is its own failure.
+
+### What the audits are for, stated once
+
+- **Accessibility** is axe-core *plus* keyboard-only traversal. axe finds a
+  missing name and is blind to whether the flow can be completed; only driving
+  pairing and sending from the keyboard answers FR-039g.
+- **Announcements** are *counted*. A progress bar that announced every update
+  would speak four times a second and the person would turn the whole thing off.
+  Announcing too much is how a product becomes unusable while passing every
+  check for whether it announces at all. The test also asserts the receiving
+  device is told something, because a count check against an empty list proves
+  nothing.
+- **Honesty** flags a reassuring word only in a sentence about files, and
+  excludes the trusted-mode panel by region. The first version flagged "pairing
+  and credentials are encrypted" — true, precise, about something else — and a
+  check that pushes the interface towards saying *less* about what is protected
+  is the opposite of the point.
+
+Each was verified to fail: a deleted translation key, an injected "Your files
+are sent securely", an unlabelled input.
+
+### Verified
+
+391 Go tests, 22 browser tests, `golangci-lint` clean. The pairing fixture
+speaks both languages now, because a fixture that only knows English can only
+test an English product.
+
+---
+
 ## 2026-08-23 — Trusted mode, as far as it can go without a phone
 
 Tasks: 131 → 141 of 159. Phase 9 is complete except for the two things that

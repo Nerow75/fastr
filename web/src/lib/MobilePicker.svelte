@@ -253,7 +253,15 @@
       </button>
     </div>
 
-    <input bind:this={picker} type="file" multiple onchange={onPicked} class="sr-only" />
+    <input
+      bind:this={picker}
+      type="file"
+      multiple
+      onchange={onPicked}
+      class="sr-only"
+      aria-hidden="true"
+      tabindex="-1"
+    />
     <input
       bind:this={cameraPicker}
       type="file"
@@ -261,6 +269,8 @@
       capture="environment"
       onchange={onPicked}
       class="sr-only"
+      aria-hidden="true"
+      tabindex="-1"
     />
 
     {#if files.length > 0}
