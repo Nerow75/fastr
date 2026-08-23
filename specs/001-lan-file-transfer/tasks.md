@@ -291,19 +291,19 @@ Three pieces of work were needed that no task named:
 
 ### Tests for User Story 6
 
-- [ ] T115 [P] [US6] Integration test for a relayed transfer leaving zero bytes behind in `test/integration/us6_relay_test.go`, per SC-019
-- [ ] T116 [P] [US6] Integration test asserting trust is not transitive between phones in `test/integration/relay_authorization_test.go`, per FR-054
-- [ ] T117 [P] [US6] Integration test for relay failure when the computer becomes unavailable in `test/integration/relay_failure_test.go`, per FR-057
+- [X] T115 [P] [US6] Integration test for a relayed transfer leaving zero bytes behind in `test/integration/us6_relay_test.go`, per SC-019 — for **all four** endings, not just the happy one: completed, cancelled, failed, and swept. **Found a race in the test itself:** the client's read finishes when the last byte arrives, while the server is still finishing the transfer, so the residue check has to wait for the ending it is asking about.
+- [X] T116 [P] [US6] Integration test asserting trust is not transitive between phones in `test/integration/relay_authorization_test.go`, per FR-054. A device identifier is not a secret — it travels in the device list every paired device can read — so this cannot rest on nobody knowing it. It rests on the relay asking about the *target's* pairing every time, including after a revocation and after an expiry.
+- [X] T117 [P] [US6] Integration test for relay failure when the computer becomes unavailable in `test/integration/relay_failure_test.go`, per FR-057, covering both halves: the upload resumes from the committed offset, the download resumes with a Range, and a restart leaves the staged bytes intact with the transfer interrupted rather than failed.
 
 ### Implementation for User Story 6
 
-- [ ] T118 [US6] Implement relay session staging outside the receive folder in `internal/transfer/relay.go`, per FR-055
-- [ ] T119 [US6] Implement per-hop authorization requiring both pairings in `internal/pairing/trust.go`, per FR-054
-- [ ] T120 [US6] Implement relay staging space checks before starting in `internal/transfer/space.go`, per FR-058
-- [ ] T121 [US6] Implement relay cleanup on every terminal state and on sweep in `internal/store/sweep.go`
-- [ ] T122 [P] [US6] Build the relay visibility and cancellation view in `web/src/lib/RelayView.svelte`, per FR-056
-- [ ] T123 [US6] Allow phones to be selected as targets in `web/src/lib/DeviceList.svelte`
-- [ ] T124 [US6] Add translations for every string introduced by this story to `web/src/locales/en.json` and `web/src/locales/fr.json`
+- [X] T118 [US6] Implement relay session staging outside the receive folder in `internal/transfer/relay.go` and `internal/app/relay.go`, per FR-055. **Staged rather than piped, deliberately**: the desktop-to-phone path joins a fetching receiver to a supplying sender and never touches disk, and that cannot work here, because the supplying side is a phone and a phone holding one streaming request open for the length of a file loses everything when its screen locks. It costs a round trip through the disk and buys a transfer that survives a locked screen on either side. Relayed bytes live in a directory of their own, so "never appears as a file this computer received" is a property of the layout rather than a promise about cleanup code.
+- [X] T119 [US6] Implement per-hop authorization requiring both pairings, per FR-054, in `app.Declare` using `pairing.Decide` for each hop. The relaying computer's own trust mode applies to the sender as well: the bytes land on its disk, so "may this device write here unattended" is exactly as relevant as for a file addressed to it.
+- [X] T120 [US6] Implement relay staging space checks before starting, per FR-058: the check runs against the *staging* filesystem for a relayed transfer rather than the receive folder, since that is where the bytes actually go.
+- [X] T121 [US6] Implement relay cleanup on every terminal state and on sweep. Complete, fail, and cancel each discard; the retention sweep clears what a process killed mid-relay left behind, because FR-055 has no exception for a crash.
+- [X] T122 [P] [US6] Build the relay visibility and cancellation view in `web/src/lib/RelayView.svelte`, per FR-056. It shows how much is on this disk **right now**, read from the filesystem rather than from the transfer record, because that is the number the person whose disk it is cares about. It renders nothing when nothing is passing through, which is almost always. The endpoint behind it is loopback only: the answer names two other people's devices and their files.
+- [X] T123 [US6] Allow phones to be selected as targets — in `web/src/lib/MobilePicker.svelte` rather than `DeviceList.svelte`, because the phone is where a relayed transfer is *started* and the device list is a desktop panel. Only phones with their page open are offered: a relayed transfer to a closed phone would sit in the computer's staging area waiting for a collection that is not coming. The picker says plainly that the computer passes the file through without keeping it.
+- [X] T124 [US6] Add translations for every string introduced by this story, in `internal/i18n/locales/` (see T088 for why the catalogues live there).
 
 **Checkpoint**: All six user stories are independently functional.
 

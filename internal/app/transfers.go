@@ -127,11 +127,13 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		return store.Transfer{}, New(CodeInvalidRequest)
 	}
 
-	// A transfer aimed at this machine is written here. Everything else is
-	// piped between two browsers and never touches this disk, which is why the
-	// destination naming below applies only to the incoming case.
+	// A transfer aimed at this machine is written here. One from this machine to
+	// a phone is piped between two browsers and never touches this disk. And one
+	// between two *other* devices is relayed: it is written here too, but into a
+	// directory of its own that the receive folder can never reach (FR-055).
 	incoming := t.SelfID != "" && d.TargetDeviceID == t.SelfID
-	receive, _ := t.folders()
+	relayed := t.SelfID != "" && !incoming && sourceDeviceID != t.SelfID
+	receive, staging := t.folders()
 
 	var total uint64
 	items := make([]store.TransferItem, 0, len(d.Items))
@@ -168,8 +170,16 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		items = append(items, stored)
 	}
 
+	// FR-058: a relay needs room for the whole thing in its own staging area,
+	// and the answer has to come before any data moves rather than at ninety
+	// percent of it.
+	space := receive
+	if relayed {
+		space = staging
+	}
+
 	if t.Space != nil {
-		if err := transfer.CheckSpace(t.Space, receive, total); err != nil {
+		if err := transfer.CheckSpace(t.Space, space, total); err != nil {
 			var short *transfer.ErrInsufficientSpace
 			if errors.As(err, &short) {
 				return store.Transfer{}, Errorf(CodeInsufficientSpace, err).
@@ -181,15 +191,20 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 	}
 
 	direction := store.DirectionOutgoing
-	if incoming {
+	relayID := ""
+	switch {
+	case incoming:
 		direction = store.DirectionIncoming
+	case relayed:
+		direction = store.DirectionRelayed
+		relayID = t.SelfID
 	}
 
-	// Whether these bytes may land on this disk unasked. Only for an incoming
-	// transfer: one this machine is merely piping between two browsers never
+	// Whether these bytes may land on this disk unasked. Only for a transfer
+	// this machine writes: one it merely pipes between two browsers never
 	// touches the disk, so there is nothing for a human here to consent to.
 	state := store.StateQueued
-	if incoming {
+	if incoming || relayed {
 		now := t.Store.Now()
 		pair, err := t.Store.Pairing(sourceDeviceID)
 
@@ -204,11 +219,24 @@ func (t *Transfers) Declare(sourceDeviceID string, d Declaration) (store.Transfe
 		}
 	}
 
+	// FR-054: trust is never transitive. Relaying between two phones needs
+	// *both* of them paired with this computer — being paired with the sender
+	// says nothing about the machine it wants to reach, and a relay that
+	// assumed otherwise would let one visitor's phone push files to another's
+	// simply by naming it.
+	if relayed {
+		target, err := t.Store.Pairing(d.TargetDeviceID)
+		if pairing.Decide(target, err, t.Store.Now()) == pairing.Refuse {
+			return store.Transfer{}, New(CodeUnauthorized)
+		}
+	}
+
 	tr := store.Transfer{
 		ID:             store.NewID(),
 		Direction:      direction,
 		SourceDeviceID: sourceDeviceID,
 		TargetDeviceID: d.TargetDeviceID,
+		RelayDeviceID:  relayID,
 		ProtectionMode: store.ProtectionSimple,
 		Items:          items,
 		TotalBytes:     total,
@@ -427,6 +455,8 @@ func (t *Transfers) Complete(id store.ID, index int) error {
 	}
 
 	finished, _ := t.Store.Transfer(id)
+	// SC-019: whichever way a relayed transfer ended, zero bytes of it remain.
+	t.discardRelay(finished)
 	if err := t.Store.RecordHistory(finished, t.peerName(finished)); err != nil {
 		t.Log.Error("record history", "transfer_id", id.String(), "error", err)
 	}
@@ -463,6 +493,7 @@ func (t *Transfers) Fail(id store.ID, cause store.FailureCause) {
 	tr, _ := t.Store.Transfer(id)
 	if tr.ID != "" {
 		t.discardStaging(tr)
+		t.discardRelay(tr)
 		if err := t.Store.RecordHistory(tr, t.peerName(tr)); err != nil {
 			t.Log.Error("record history", "transfer_id", id.String(), "error", err)
 		}
@@ -488,6 +519,7 @@ func (t *Transfers) Cancel(id store.ID) error {
 		t.Pipes.Cancel(transfer.Key{TransferID: id.String(), ItemIndex: index})
 	}
 	t.discardStaging(tr)
+	t.discardRelay(tr)
 
 	if err := t.Store.SetTransferState(id, store.StateCancelled, ""); err != nil {
 		return Errorf(CodeInternal, err)
@@ -570,6 +602,14 @@ func (t *Transfers) Sweep(now time.Time) ([]store.Removal, error) {
 	removals, err := t.Store.Sweep(now)
 	if err != nil {
 		return nil, Errorf(CodeInternal, err)
+	}
+
+	// And whatever a crash left in the relay directory. Nothing should be there
+	// for a transfer that has ended — every terminal path removes it — but a
+	// process killed mid-relay leaves bytes that are not this machine's, and
+	// FR-055 does not have an exception for that.
+	if swept := t.SweepRelayed(); swept > 0 {
+		t.Log.Info("cleared relayed data left by an earlier run", "transfers", swept)
 	}
 	if len(removals) == 0 {
 		return removals, nil

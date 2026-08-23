@@ -108,7 +108,7 @@ func (d *device) supply(t *testing.T, transferID string, index int, offset uint6
 // The whole story: a file goes from one device to another, intact.
 func TestTransferMovesAFileEndToEnd(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	payload := make([]byte, 3<<20) // 3 MB, several buffers' worth
@@ -173,7 +173,7 @@ func (d *device) waitForState(t *testing.T, id, want string) {
 // The download carries the sanitized name, not whatever the sender said.
 func TestDownloadCarriesTheSanitizedName(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	payload := []byte("small")
@@ -207,7 +207,7 @@ func TestDownloadCarriesTheSanitizedName(t *testing.T) {
 // FR-031: a resumed fetch asks for a range and the sender continues from there.
 func TestResumedFetchContinuesFromTheOffset(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	whole := bytes.Repeat([]byte("0123456789"), 1000) // 10 000 bytes
@@ -243,7 +243,7 @@ func TestResumedFetchContinuesFromTheOffset(t *testing.T) {
 // it that still passes a length check.
 func TestSupplyAtTheWrongOffsetIsRefusedOverHTTP(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	tr := sender.declare(t, receiver.ID, "file.bin", 1000)
@@ -272,7 +272,7 @@ func TestSupplyAtTheWrongOffsetIsRefusedOverHTTP(t *testing.T) {
 // holding a valid credential and guessing an identifier.
 func TestOutsiderCannotTouchSomeoneElsesTransfer(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 	outsider := h.pair()
 
@@ -313,7 +313,7 @@ func TestOutsiderCannotTouchSomeoneElsesTransfer(t *testing.T) {
 // a transfer between two other devices.
 func TestOnlyTheSourceMaySupply(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	tr := sender.declare(t, receiver.ID, "file.bin", 10)
@@ -330,7 +330,7 @@ func TestOnlyTheSourceMaySupply(t *testing.T) {
 // moves, and the message carries both numbers.
 func TestDeclarationRefusedWhenSpaceIsShort(t *testing.T) {
 	h := newHarnessWithSpace(t, 1<<20) // 1 MB free
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	resp := sender.do("POST", "/api/transfers", map[string]any{
@@ -354,7 +354,7 @@ func TestDeclarationRefusedWhenSpaceIsShort(t *testing.T) {
 
 func TestEmptyDeclarationIsRefused(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	resp := sender.do("POST", "/api/transfers", map[string]any{
@@ -387,7 +387,7 @@ func TestTransferToSelfIsRefused(t *testing.T) {
 // time out. FR-035.
 func TestCancelReleasesAWaitingFetch(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	tr := sender.declare(t, receiver.ID, "file.bin", 1000)
@@ -463,7 +463,7 @@ func (d *device) contentTicket(t *testing.T, transferID string, index int) strin
 
 func TestContentTicketAuthorizesOneItemOnly(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	payload := []byte("the file")
@@ -517,7 +517,7 @@ func TestContentTicketAuthorizesOneItemOnly(t *testing.T) {
 
 func TestContentWithoutCredentialOrTicketIsRefused(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	tr := sender.declare(t, receiver.ID, "a.bin", 10)
@@ -539,7 +539,7 @@ func TestContentWithoutCredentialOrTicketIsRefused(t *testing.T) {
 // Revocation means immediately, including for a ticket already minted.
 func TestRevocationInvalidatesAContentTicket(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 
 	tr := sender.declare(t, receiver.ID, "a.bin", 10)
@@ -565,7 +565,7 @@ func TestRevocationInvalidatesAContentTicket(t *testing.T) {
 // An outsider cannot mint a ticket for a transfer it is not part of.
 func TestOutsiderCannotMintAContentTicket(t *testing.T) {
 	h := newHarness(t)
-	sender := h.pair()
+	sender := h.host(t)
 	receiver := h.pair()
 	outsider := h.pair()
 

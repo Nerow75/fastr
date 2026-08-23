@@ -18,10 +18,24 @@
    * mistake is worth noticing before it starts rather than after.
    */
 
+  /** Another device this phone can send to, through the computer. */
+  interface Peer {
+    id: string;
+    name: string;
+    paired: boolean;
+    connected?: boolean;
+  }
+
   interface Props {
     /** The computer this phone is paired with, from GET /connect. */
     targetName: string;
     targetDeviceId: string;
+    /**
+     * Other phones paired with the same computer, which it will relay to.
+     * FR-053: a friend's phone is a destination like any other, and the
+     * computer passes the data through without keeping it.
+     */
+    peers?: Peer[];
     uploader: Uploader;
     /**
      * Transfers from this phone that have not finished, as the computer knows
@@ -34,7 +48,30 @@
     onerror: (failure: unknown) => void;
   }
 
-  let { targetName, targetDeviceId, uploader, unfinished = [], onsent, onerror }: Props = $props();
+  let {
+    targetName,
+    targetDeviceId,
+    peers = [],
+    uploader,
+    unfinished = [],
+    onsent,
+    onerror,
+  }: Props = $props();
+
+  /**
+   * Where the files are going. The computer by default, because that is what
+   * this is for most of the time; another phone when the user picks one.
+   */
+  let chosen = $state('');
+  let destination = $derived(chosen === '' ? targetDeviceId : chosen);
+
+  // Only phones that have their page open. A relayed transfer to a closed
+  // phone would sit in the computer's staging area waiting for a collection
+  // that is not coming, which is the failure T051e was about in the other
+  // direction.
+  let reachablePeers = $derived(
+    peers.filter((p) => p.paired && p.connected && p.id !== targetDeviceId),
+  );
 
   let files = $state<File[]>([]);
   let busy = $state(false);
@@ -50,7 +87,7 @@
   let cameraPicker: HTMLInputElement | null = $state(null);
 
   let totalBytes = $derived(files.reduce((sum, f) => sum + f.size, 0));
-  let ready = $derived(files.length > 0 && targetDeviceId !== '' && !busy);
+  let ready = $derived(files.length > 0 && destination !== '' && !busy);
 
   /**
    * The unfinished transfer these files belong to, if there is one.
@@ -114,7 +151,7 @@
       // Continued rather than declared again when the computer still holds a
       // transfer for these files: run() asks for the committed offset before
       // sending anything, so this resumes by construction.
-      const transfer = resumable ?? (await uploader.declare(targetDeviceId, files));
+      const transfer = resumable ?? (await uploader.declare(destination, files));
       active = transfer.id;
       onsent(transfer);
 
@@ -179,7 +216,28 @@
   {#if targetDeviceId === ''}
     <p class="empty">{t('transfer.no_computer')}</p>
   {:else}
-    <p class="target">{t('transfer.to')}: <strong>{targetName}</strong></p>
+    {#if reachablePeers.length === 0}
+      <p class="target">{t('transfer.to')}: <strong>{targetName}</strong></p>
+    {:else}
+      <!--
+        A choice only when there is one. A select with a single option is a
+        worse way of saying the same thing as a line of text.
+      -->
+      <div class="field">
+        <label for="mobile-target">{t('transfer.to')}</label>
+        <select id="mobile-target" bind:value={chosen} disabled={busy}>
+          <option value="">{targetName}</option>
+          {#each reachablePeers as peer (peer.id)}
+            <option value={peer.id}>{peer.name}</option>
+          {/each}
+        </select>
+      </div>
+      {#if chosen !== ''}
+        <!-- Said plainly: the computer holds the file for a moment on the way
+             through, and the user is entitled to know that before sending. -->
+        <p class="note">{t('transfer.via_computer', { name: targetName })}</p>
+      {/if}
+    {/if}
 
     <!--
       Two entry points, because a phone has two. "Choose files" reaches the
@@ -413,6 +471,28 @@
     margin: 0.5rem 0 0;
     color: var(--text-muted);
     font-size: 0.875rem;
+  }
+
+  .field {
+    margin-bottom: 0.5rem;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  select {
+    width: 100%;
+    min-height: 2.75rem;
+    font-size: 1rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
   }
 
   .resuming {

@@ -8,6 +8,68 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-23 — User Story 6: relaying between two phones
+
+Tasks: 121 → 131 of 159. Phase 8 complete, and with it all six user stories.
+
+### Staged, not piped, and why that is the whole design
+
+The desktop-to-phone path joins a fetching receiver to a supplying sender and
+never touches the disk. The obvious move was to reuse it here. It cannot work:
+the supplying side is a phone, and a phone holding one streaming request open
+for the length of a file loses the whole thing the moment its screen locks —
+which is the failure User Story 3 exists to prevent.
+
+So a relay has **two halves**. The sending phone pushes chunks exactly as it
+would to the computer itself; the bytes wait on disk, verified; the receiving
+phone fetches them exactly as it would fetch anything else. It costs a round
+trip through the disk and buys a transfer that survives a locked screen on
+either side. Neither half needed a mechanism of its own, which is the argument
+for it: resume and Range both came for free.
+
+A consequence worth stating: a relayed item that has finished uploading sits in
+`verifying`, not `completed`. Marking it complete when the sender finished would
+tell them the file had arrived somewhere it had not.
+
+### Holding data that is not ours
+
+This is the only place a machine ends up holding someone else's files, and every
+rule follows from taking that seriously.
+
+- Relayed bytes go to a **directory of their own**, so "never appears as a file
+  this computer received" is a property of the layout rather than a promise
+  about cleanup code.
+- They are deleted on **every** ending — completed, cancelled, failed,
+  abandoned — and the retention sweep clears what a process killed mid-relay
+  left behind. FR-055 has no exception for a crash.
+- The relaying user can **see what is passing through and stop it**, with how
+  much is on their disk read from the filesystem rather than from a record.
+- FR-054, trust is never transitive: both phones must be paired here. A device
+  identifier is not a secret — it travels in the device list every paired device
+  can read — so this rests on asking about the target's pairing every time, not
+  on nobody knowing it.
+
+### A topology thirteen tests had wrong
+
+Classifying two paired phones as a relay broke six pipe tests, and the reason
+was worth the interruption: they were sending **phone to phone** to exercise the
+desktop-to-phone pipe. That topology does not exist in the product. Two phones
+going through this computer is a relay; the pipe is for the *host* supplying to
+a phone, which is the one case where the sender can hold a request open.
+
+Thirteen tests now send from `h.host(t)`. They were passing, and they were
+testing a shape the product does not have.
+
+### Verified
+
+369 Go tests, 9 browser tests, `golangci-lint` clean. SC-019 is checked for all
+four endings rather than the happy one — and writing that found a race in the
+test itself: a client's read finishes when the last byte arrives, while the
+server is still finishing the transfer, so "nothing remains after it ends" has
+to wait for the ending it is asking about.
+
+---
+
 ## 2026-08-23 — User Story 5: controllable, and trustworthy
 
 Tasks: 105 → 121 of 159. Phase 7 complete.

@@ -18,6 +18,9 @@ import (
 //     name the user will see. A mismatch deletes the partial and fails the
 //     transfer. Nothing reaches the final path before that succeeds (FR-032,
 //     FR-033).
+//   - When this machine is relaying between two phones, the same verification
+//     runs, but the file is left in the relay directory for the phone it was
+//     meant for rather than placed in this user's receive folder (FR-055).
 //   - When the bytes were piped to another device, this machine never had them.
 //     The digest is recorded so it appears in history and so the receiver can
 //     check its own copy, and the item is marked done.
@@ -65,7 +68,7 @@ func (d Deps) handleCompleteItem(s *Session, w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	if !d.Transfers.Incoming(tr) {
+	if !d.Transfers.Writes(tr) {
 		// Piped to another device: this machine never held the bytes and has
 		// nothing to verify. The receiving browser checks its own copy.
 		s.writeJSON(w, r, http.StatusOK, map[string]any{"item": index})

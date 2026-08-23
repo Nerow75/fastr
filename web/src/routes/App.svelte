@@ -23,6 +23,7 @@
   import DeviceList from '../lib/DeviceList.svelte';
   import QueueView from '../lib/QueueView.svelte';
   import HistoryView from '../lib/HistoryView.svelte';
+  import RelayView from '../lib/RelayView.svelte';
   import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -499,6 +500,7 @@
         targetName={host.name}
         targetDeviceId={host.device_id}
         {uploader}
+        peers={peers.filter((d) => d.paired)}
         unfinished={resumable}
         onsent={noteTransfer}
         onerror={onPairingError}
@@ -510,6 +512,14 @@
       queue is this machine's single slot, and the history is what happened
       here, including with a phone that is no longer in the house.
     -->
+    <!--
+      What is passing through this machine between two other devices. It renders
+      nothing unless something is, which is almost always. FR-056.
+    -->
+    {#if desktop && session}
+      <RelayView {session} revision={historyRevision} oncancel={cancelTransfer} />
+    {/if}
+
     {#if desktop && session}
       <QueueView
         {session}

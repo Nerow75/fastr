@@ -464,3 +464,27 @@ func newHarnessWithSpace(t *testing.T, free uint64) *harness {
 	h.transfers.Space = fakeSpace(free)
 	return h
 }
+
+// host returns a client acting as this computer's own page.
+//
+// The desktop-to-phone path is the one that goes through the pipe, and it is
+// the *host* that supplies into it. A test that used two paired phones for that
+// was testing a topology the product does not have: two phones going through
+// this computer is a relay (FR-053), which stages rather than pipes, because a
+// phone cannot hold one streaming request open for the length of a file.
+func (h *harness) host(t *testing.T) *device {
+	t.Helper()
+
+	granted := h.hostSession(t)
+
+	key, err := base64.StdEncoding.DecodeString(granted.Key)
+	if err != nil {
+		t.Fatalf("decode host key: %v", err)
+	}
+	env, err := pairing.NewEnvelope(key, pairing.ClientToServer)
+	if err != nil {
+		t.Fatalf("envelope: %v", err)
+	}
+
+	return &device{h: h, ID: granted.DeviceID, credential: granted.Credential, envelope: env}
+}

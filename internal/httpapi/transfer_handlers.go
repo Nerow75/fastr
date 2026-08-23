@@ -148,6 +148,14 @@ func (d Deps) handleFetchContent(s *Session, w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	// A relayed transfer is already on this disk: the sending phone pushed it
+	// here and it was verified on arrival, so there is nothing to wait for and
+	// nobody to join it to. Serving the file is the whole of the second half.
+	if d.Transfers.Relaying(tr) {
+		d.serveRelayed(s, tr, index, offset, w, r)
+		return
+	}
+
 	key := transfer.Key{TransferID: tr.ID.String(), ItemIndex: index}
 	reader, finish, err := d.Transfers.Pipes.Await(key, offset, r.Context().Done())
 	if err != nil {

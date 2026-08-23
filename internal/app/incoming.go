@@ -59,7 +59,7 @@ func (t *Transfers) Receive(
 	offset uint64,
 	body io.Reader,
 ) (uint64, error) {
-	if !t.Incoming(tr) {
+	if !t.Writes(tr) {
 		return 0, Errorf(CodeInvalidRequest, ErrNotIncoming)
 	}
 	if index < 0 || index >= len(tr.Items) {
@@ -127,7 +127,7 @@ func (t *Transfers) Receive(
 
 // CommittedOffset reports where a resuming sender should continue from.
 func (t *Transfers) CommittedOffset(tr store.Transfer, index int) (uint64, error) {
-	if !t.Incoming(tr) {
+	if !t.Writes(tr) {
 		return 0, Errorf(CodeInvalidRequest, ErrNotIncoming)
 	}
 	if index < 0 || index >= len(tr.Items) {
@@ -173,17 +173,27 @@ func (t *Transfers) CommitItem(tr store.Transfer, index int, expected []byte) (s
 		return store.Transfer{}, Errorf(CodeInternal, err)
 	}
 
-	// Resolved again rather than reusing the name chosen at declaration: another
-	// transfer, or the user, may have created that name in the meantime, and
-	// FR-025 forbids overwriting whatever is there now.
-	receive, _ := t.folders()
-	res, err := transfer.Resolve(receive, item.RelativePath, item.OriginalName, t.Rules)
-	if err != nil {
-		t.Fail(tr.ID, store.CauseSourceUnreadable)
-		return store.Transfer{}, Errorf(CodeInvalidPath, err)
+	// Where the verified bytes go, which is the one thing a relayed item does
+	// differently. They are checked exactly as an incoming file is, and then
+	// they wait in the relay directory for the phone they were meant for
+	// instead of being placed in this user's receive folder (FR-055).
+	destination := t.relayPath(tr, index)
+	storedName := item.StoredName
+
+	if !t.Relaying(tr) {
+		// Resolved again rather than reusing the name chosen at declaration:
+		// another transfer, or the user, may have created that name in the
+		// meantime, and FR-025 forbids overwriting whatever is there now.
+		receive, _ := t.folders()
+		res, err := transfer.Resolve(receive, item.RelativePath, item.OriginalName, t.Rules)
+		if err != nil {
+			t.Fail(tr.ID, store.CauseSourceUnreadable)
+			return store.Transfer{}, Errorf(CodeInvalidPath, err)
+		}
+		destination, storedName = res.Path, res.StoredName
 	}
 
-	if err := sink.Commit(expected, res.Path); err != nil {
+	if err := sink.Commit(expected, destination); err != nil {
 		t.Sinks.Release(transfer.Key{TransferID: tr.ID.String(), ItemIndex: index})
 
 		if errors.Is(err, transfer.ErrChecksumMismatch) {
@@ -197,11 +207,22 @@ func (t *Transfers) CommitItem(tr store.Transfer, index int, expected []byte) (s
 
 	// The name actually used, which is what the sender is shown so it can say
 	// what changed and why.
-	if res.StoredName != item.StoredName {
-		tr.Items[index].StoredName = res.StoredName
+	if storedName != item.StoredName {
+		tr.Items[index].StoredName = storedName
 		if err := t.Store.PutTransfer(tr); err != nil {
 			return store.Transfer{}, Errorf(CodeInternal, err)
 		}
+	}
+
+	// A relayed item is not finished when it finishes uploading: it is halfway.
+	// The bytes are here and verified, and they are waiting for the phone they
+	// were meant for. Calling it completed now would tell the sender the file
+	// had arrived somewhere it has not.
+	if t.Relaying(tr) {
+		if err := t.stageRelayed(tr, index); err != nil {
+			return store.Transfer{}, err
+		}
+		return t.Get(tr.ID)
 	}
 
 	if err := t.Complete(tr.ID, index); err != nil {
@@ -216,11 +237,10 @@ func (t *Transfers) sink(tr store.Transfer, index int) (*transfer.Sink, error) {
 	if t.Sinks == nil {
 		return nil, errors.New("no staging is configured for incoming transfers")
 	}
-	_, staging := t.folders()
 
 	return t.Sinks.Open(
 		transfer.Key{TransferID: tr.ID.String(), ItemIndex: index},
-		staging,
+		t.writeDir(tr),
 		stagingKey(tr.ID, index),
 		tr.Items[index].CommittedOffset,
 	)
@@ -231,10 +251,10 @@ func (t *Transfers) sink(tr store.Transfer, index int) (*transfer.Sink, error) {
 // for a received one, and staging is swept even though it already sits outside
 // the receive folder.
 func (t *Transfers) discardStaging(tr store.Transfer) {
-	if t.Sinks == nil || !t.Incoming(tr) {
+	if t.Sinks == nil || !t.Writes(tr) {
 		return
 	}
-	_, staging := t.folders()
+	staging := t.writeDir(tr)
 
 	for index := range tr.Items {
 		key := transfer.Key{TransferID: tr.ID.String(), ItemIndex: index}

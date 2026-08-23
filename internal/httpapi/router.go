@@ -113,6 +113,10 @@ func NewRouter(d Deps) http.Handler {
 
 	// The history of what has finished here, and the one thing the user can
 	// erase completely. See history_handlers.go.
+	// What is passing through this machine on its way between two phones.
+	// Loopback only: the answer names two other people's devices and files.
+	mux.Handle("GET /api/relayed", loopbackOnly(d, d.authenticated(d.handleRelayed).ServeHTTP))
+
 	mux.Handle("GET /api/history", d.authenticated(d.handleHistory))
 	mux.Handle("DELETE /api/history", loopbackOnly(d, d.authenticated(d.handleClearHistory).ServeHTTP))
 

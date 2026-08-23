@@ -47,7 +47,10 @@ const (
 	// CodeAwaitingAcceptance means the recipient has been asked and has not
 	// answered yet. Retryable, like a busy queue: waiting is the right response.
 	CodeAwaitingAcceptance Code = "awaiting_acceptance"
-	CodeRelayUnavailable   Code = "relay_unavailable"
+	// CodeAwaitingRelay means the sending phone has not finished handing the
+	// file to the relay yet. Retryable, and the wait is somebody else's upload.
+	CodeAwaitingRelay    Code = "awaiting_relay"
+	CodeRelayUnavailable Code = "relay_unavailable"
 
 	// Discovery.
 	CodeDeviceUnreachable Code = "device_unreachable"
@@ -89,6 +92,7 @@ var catalogue = map[Code]entry{
 	CodeDeclined:           {http.StatusForbidden, "error.transfer_declined", false},
 	CodeAcceptanceTimeout:  {http.StatusRequestTimeout, "error.acceptance_timeout", false},
 	CodeAwaitingAcceptance: {http.StatusConflict, "error.awaiting_acceptance", false},
+	CodeAwaitingRelay:      {http.StatusConflict, "error.awaiting_relay", false},
 	CodeRelayUnavailable:   {http.StatusServiceUnavailable, "error.relay_unavailable", false},
 
 	CodeDeviceUnreachable: {http.StatusNotFound, "error.device_unreachable", false},
