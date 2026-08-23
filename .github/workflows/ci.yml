@@ -113,14 +113,16 @@ jobs:
           go-version: "1.27"
           cache: true
 
-      # install-mode: goinstall builds the linter with the toolchain set up
-      # above. The default downloads a prebuilt binary, and a binary built with
-      # an older Go refuses a config that targets a newer one — which is why
-      # this job had never actually run a single check.
-      - uses: golangci/golangci-lint-action@v6
+      # The action's major version has to match the linter's. This job spent its
+      # whole life on @v6, which installs golangci-lint v1, while .golangci.yml
+      # is a v2 config — so every run died on "the configuration contains
+      # invalid elements" before reaching a single linter. @v9 installs v2.
+      #
+      # The linter version is pinned rather than "latest" so a new release
+      # cannot turn this job red on a morning when nothing here changed.
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
-          install-mode: goinstall
+          version: v2.13.1
 
       - uses: actions/setup-node@v4
         with:

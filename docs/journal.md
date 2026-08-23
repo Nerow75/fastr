@@ -98,10 +98,17 @@ test before a release would close it.
 
 ### The `Lint` job now actually runs
 
-It never had. `golangci-lint-action` downloads a prebuilt binary, and a binary
-built with an older Go refuses a config targeting a newer one, so the job failed
-before checking anything. `install-mode: goinstall` builds it with the toolchain
-the job already sets up.
+It never had, and the reason recorded here for months was wrong. The theory was
+a Go version mismatch: a prebuilt linter built with an older toolchain refusing
+a config that targets a newer one. The actual cause, visible only once the job
+got far enough to say anything at all, is simpler. **The action's major version
+has to match the linter's.** This job sat on `@v6`, which installs golangci-lint
+v1, while `.golangci.yml` is a v2 config — so every run died on "the
+configuration contains invalid elements" before reaching a single linter. `@v9`
+installs v2.
+
+The linter version is pinned rather than `latest`, so a new release cannot turn
+this red on a morning when nothing in the repository changed.
 
 Turning it on surfaced 26 issues, all pre-existing and all small. They are now
 zero, and the split is worth remembering: about half were real (unchecked closes,
