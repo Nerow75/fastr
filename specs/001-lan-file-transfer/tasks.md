@@ -332,12 +332,12 @@ Three pieces of work were needed that no task named:
 ## Phase 10: Polish & Cross-Cutting Concerns
 
 - [ ] T137 Decide the pairing hardening question, implementing a PAKE or documenting the accepted risk, in `internal/pairing/handshake.go`, per research item 1
-- [ ] T138 Confirm the mDNS library choice or switch to the identified fallback in `internal/discovery/browse.go`, per research item 2
+- [X] T138 Confirm the mDNS library choice or switch to the identified fallback, per research item 8 (the task said item 2; the mDNS decision is item 8). **The flag fired.** `libp2p/zeroconf/v2`'s last release is four years old against two months for the documented fallback, so the fallback it is; `brutella/dnssd` was weighed and rejected for pulling Linux-specific netlink plumbing that adds a parity risk on Windows for no benefit. research.md section 8 carries the reasoning and what the change costs. Done with User Story 4.
 - [ ] T139 Ensure a missing Linux tray dependency degrades to a headless background service in `internal/platform/tray.go`, per research item 3
 - [ ] T140 [P] Run the full accessibility gate and fix every violation, in `test/e2e/a11y.spec.ts`, per FR-039f to FR-039j
 - [ ] T141 [P] Verify progress announcements fire only at meaningful moments in `test/e2e/a11y_announcements.spec.ts`, per FR-039i
 - [ ] T142 [P] Audit for untranslated strings and raw identifiers across the interface in `test/e2e/i18n_coverage.spec.ts`, per SC-022
-- [ ] T143 [P] Audit that no screen describes simple mode as secure without qualification in `test/e2e/protection_honesty.spec.ts`, per SC-016a
+- [X] T143 [P] Audit that no screen describes simple mode as secure without qualification, in `web/tests/e2e/protection_honesty.spec.ts`, per SC-016a. **The rule had to be stated precisely before it could be tested**, and the first attempt was too blunt: it flagged "pairing and credentials are encrypted", which is true, precise, and about something else, and a check that pushes the interface towards saying *less* about what is protected is the opposite of the point. It now flags a reassuring word only when the sentence is about files, and it excludes the trusted-mode panel by region rather than by wording — that is the one place "encrypts file content end to end" is simply true. Verified to fail by putting "Your files are sent securely" into the protection notice.
 - [ ] T144 Measure throughput against raw link speed and close any gap below 60% in `test/integration/throughput_test.go`, per SC-004
 - [ ] T145 Measure idle background resource use against the budget in `test/integration/idle_budget_test.go`, per SC-018
 - [ ] T146 [P] Verify every error in the catalogue names a cause and a corrective action in `test/integration/error_catalogue_test.go`, per SC-014
