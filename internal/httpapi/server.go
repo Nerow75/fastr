@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+
+	"github.com/Nerow75/fastr/internal/localnet"
 	"sync"
 	"time"
 )
@@ -167,7 +169,7 @@ func bindAddresses(interfaces []string) ([]string, error) {
 			if ip == nil {
 				return nil, fmt.Errorf("not an IP address: %q", addr)
 			}
-			if !isLocalIP(ip) {
+			if !localnet.IsIP(ip) {
 				return nil, fmt.Errorf(
 					"refusing to bind %s: it is not a local network address", addr)
 			}
@@ -190,31 +192,10 @@ func bindAddresses(interfaces []string) ([]string, error) {
 		if ip.To4() == nil {
 			continue // IPv4 only for now; the QR code has to stay short
 		}
-		if !isLocalIP(ip) {
+		if !localnet.IsIP(ip) {
 			continue
 		}
 		out = append(out, ip.String())
 	}
 	return out, nil
-}
-
-// isLocalIP reports whether an address belongs to the local network.
-func isLocalIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
-}
-
-// IsLocalAddr reports whether a host:port or bare host is on the local network.
-// The network boundary test uses it, and so does the dialer restriction.
-func IsLocalAddr(addr string) bool {
-	host := addr
-	if h, _, err := net.SplitHostPort(addr); err == nil {
-		host = h
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		// A name rather than an address. "localhost" is fine; anything else
-		// would need resolution, which is itself a network call.
-		return host == "localhost"
-	}
-	return isLocalIP(ip)
 }

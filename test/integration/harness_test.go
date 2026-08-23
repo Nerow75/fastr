@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
 
 	"github.com/Nerow75/fastr/internal/app"
+	"github.com/Nerow75/fastr/internal/discovery"
 	"github.com/Nerow75/fastr/internal/httpapi"
 	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/platform"
@@ -39,6 +41,10 @@ type harness struct {
 	transfers *app.Transfers
 	logs      *bytes.Buffer
 	scrubber  *app.Scrubber
+
+	// discovery is swappable so a test can put the instance on a network that
+	// blocks multicast without needing one.
+	discovery *swappableDiscovery
 
 	// selfID is what a phone names as the target when it sends here.
 	selfID     string
@@ -99,6 +105,10 @@ func newHarness(t *testing.T) *harness {
 		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fastr</title>")},
 	}
 
+	// A working but empty network by default: nothing is found, and looking is
+	// not broken. Tests that care put something else here.
+	seen := &swappableDiscovery{inner: idleDiscovery{}}
+
 	router := httpapi.NewRouter(httpapi.Deps{
 		Log:        logger,
 		Store:      st,
@@ -113,6 +123,7 @@ func newHarness(t *testing.T) *harness {
 		DeviceName: "Test Computer",
 		DeviceID:   selfID,
 		Trusted:    func(*http.Request) bool { return false },
+		Discovery:  seen,
 	})
 
 	srv := httptest.NewServer(router)
@@ -121,10 +132,41 @@ func newHarness(t *testing.T) *harness {
 	return &harness{
 		t: t, server: srv, store: st, codes: codes,
 		sessions: sessions, events: events, tickets: tickets, pendings: pendings, pipes: pipes, transfers: transfers,
-		logs: logs, scrubber: scrubber,
+		logs: logs, scrubber: scrubber, discovery: seen,
 		selfID: selfID, receiveDir: receiveDir, stagingDir: stagingDir,
 	}
 }
+
+// setDiscovery replaces what this instance can see on the network.
+func (h *harness) setDiscovery(d httpapi.Discovery) { h.discovery.set(d) }
+
+// swappableDiscovery lets a test change the network under a running server,
+// which is the only way to exercise a blocked one without having a blocked one.
+type swappableDiscovery struct {
+	mu    sync.Mutex
+	inner httpapi.Discovery
+}
+
+func (s *swappableDiscovery) set(d httpapi.Discovery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inner = d
+}
+
+func (s *swappableDiscovery) current() httpapi.Discovery {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.inner
+}
+
+func (s *swappableDiscovery) Peers() []discovery.Peer { return s.current().Peers() }
+func (s *swappableDiscovery) Unavailable() error      { return s.current().Unavailable() }
+
+// idleDiscovery is a network where looking works and finds nothing.
+type idleDiscovery struct{}
+
+func (idleDiscovery) Peers() []discovery.Peer { return nil }
+func (idleDiscovery) Unavailable() error      { return nil }
 
 // device is a paired client: its credential and its envelope.
 type device struct {

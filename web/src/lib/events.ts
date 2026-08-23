@@ -12,6 +12,7 @@ import { t } from './i18n.js';
 import type { Session } from './session.js';
 
 export type EventType =
+  | 'discovery_changed'
   | 'device_appeared'
   | 'device_lost'
   | 'pairing_pending'
@@ -143,6 +144,7 @@ export class EventStream {
       );
     }
     for (const type of [
+      'discovery_changed',
       'device_appeared',
       'device_lost',
       'pairing_pending',

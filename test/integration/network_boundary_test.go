@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Nerow75/fastr/internal/httpapi"
+	"github.com/Nerow75/fastr/internal/localnet"
 )
 
 // Principle I: no byte of user content, and no request of any kind, leaves the
@@ -35,8 +36,8 @@ func TestLocalAddressClassification(t *testing.T) {
 		"169.254.10.1", // link-local, which is what a network with no DHCP gives out
 	}
 	for _, addr := range local {
-		if !httpapi.IsLocalAddr(addr) {
-			t.Errorf("IsLocalAddr(%q) = false, want true", addr)
+		if !localnet.IsAddr(addr) {
+			t.Errorf("localnet.IsAddr(%q) = false, want true", addr)
 		}
 	}
 
@@ -50,8 +51,8 @@ func TestLocalAddressClassification(t *testing.T) {
 		"192.169.0.1", // adjacent to 192.168/16
 	}
 	for _, addr := range remote {
-		if httpapi.IsLocalAddr(addr) {
-			t.Errorf("IsLocalAddr(%q) = true, want false", addr)
+		if localnet.IsAddr(addr) {
+			t.Errorf("localnet.IsAddr(%q) = true, want false", addr)
 		}
 	}
 }

@@ -21,6 +21,7 @@ import (
 type EventType string
 
 const (
+	EventDiscoveryChanged  EventType = "discovery_changed"
 	EventDeviceAppeared    EventType = "device_appeared"
 	EventDeviceLost        EventType = "device_lost"
 	EventPairingPending    EventType = "pairing_pending"

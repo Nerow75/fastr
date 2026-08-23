@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/Nerow75/fastr/internal/app"
+	"github.com/Nerow75/fastr/internal/discovery"
 	"github.com/Nerow75/fastr/internal/pairing"
 	"github.com/Nerow75/fastr/internal/store"
 )
@@ -38,6 +39,17 @@ type Deps struct {
 	// Trusted reports whether a request arrived on the trusted listener. It is
 	// a function so the server can answer per connection rather than globally.
 	Trusted func(*http.Request) bool
+
+	// Discovery is the read side of the device search: what is on the network
+	// and whether looking is working at all. Optional, and nil is a working
+	// configuration — a machine with no multicast still transfers files, which
+	// is why nothing here is allowed to be required.
+	Discovery Discovery
+	// Browser and Prober are the write side, needed only by manual entry. They
+	// are the concrete types because adding a device by hand probes it, and
+	// there is nothing to abstract over.
+	Browser *discovery.Browser
+	Prober  *discovery.Prober
 }
 
 // NewRouter builds the request multiplexer.
@@ -73,6 +85,10 @@ func NewRouter(d Deps) http.Handler {
 
 	// Everything else requires an active pairing. FR-011.
 	mux.Handle("GET /api/devices", d.authenticated(d.handleDevices))
+	// Adding a device by hand is loopback only, like every other endpoint that
+	// changes what this machine trusts: a paired phone must not be able to make
+	// its computer probe addresses of the phone's choosing.
+	mux.Handle("POST /api/devices/manual", loopbackOnly(d, d.authenticated(d.handleAddManualDevice).ServeHTTP))
 	mux.Handle("GET /api/pairings", d.authenticated(d.handlePairings))
 	mux.Handle("DELETE /api/pairings/{id}", d.authenticated(d.handleRevoke))
 	mux.Handle("PATCH /api/pairings/{id}", d.authenticated(d.handlePairingUpdate))

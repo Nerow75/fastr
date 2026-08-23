@@ -49,19 +49,28 @@ test.describe('an interrupted upload', () => {
     // Let the first chunk through; refuse the rest. `abort` fails the request
     // before it leaves, which is what the page sees when the network goes: a
     // bare TypeError out of fetch, with nothing to say what happened.
-    let delivered = 0;
+    //
+    // Decided on the offset in the URL rather than on a counter. A counter says
+    // "the first request I saw", which is not the same as "the first chunk": a
+    // retry, a reordering, or a request that slipped past interception makes
+    // the two diverge, and then the test's precondition quietly stops holding.
+    // The offset is what the request is actually about.
     let cutOff!: () => void;
     const interrupted = new Promise<void>((resolve) => (cutOff = resolve));
 
     const contentRoute = /\/items\/\d+\/content\?offset=/;
     await phone.route(contentRoute, async (route) => {
-      if (delivered === 0) {
-        delivered++;
+      if (offsetOf(route.request().url()) === 0) {
         await route.continue();
         return;
       }
-      cutOff();
+      // Aborted first, resolved second. The other order lets the test reload
+      // the page while the abort is still being applied, and a route handler
+      // that never finishes lets its request through — which delivers the chunk
+      // this test needs withheld, leaves nothing to resume, and fails on an
+      // assertion that has nothing to do with the cause.
       await route.abort('failed');
+      cutOff();
     });
 
     const send = phone.getByRole('region', { name: 'Send', exact: true });
@@ -96,12 +105,20 @@ test.describe('an interrupted upload', () => {
     await expect(resume).toBeVisible({ timeout: 20_000 });
     await expect(back).toContainText('already being sent');
 
-    // Counted from here: a file starting over would need two chunk requests,
-    // and one that resumes needs the single chunk that is left. This is the
-    // assertion the whole test exists for.
-    let chunkRequests = 0;
-    phone.on('request', (request) => {
-      if (contentRoute.test(request.url()) && request.method() === 'POST') chunkRequests++;
+    // Measured from here: exactly what the resumed upload puts on the wire.
+    //
+    // Through a route rather than a request listener. A route is the same
+    // mechanism that withheld the chunk above, and it is authoritative in a way
+    // an observer is not: a request that is not intercepted is not sent, so the
+    // count cannot silently miss one. The bytes matter more than the count —
+    // they are what SC-005 is about — and the offset says the resume began in
+    // the right place rather than merely sending less.
+    let uploaded = 0;
+    const resumedOffsets: number[] = [];
+    await phone.route(contentRoute, async (route) => {
+      uploaded += route.request().postDataBuffer()?.length ?? 0;
+      resumedOffsets.push(offsetOf(route.request().url()));
+      await route.continue();
     });
 
     await resume.click();
@@ -113,6 +130,18 @@ test.describe('an interrupted upload', () => {
       expect(received.equals(payload)).toBe(true);
     }).toPass({ timeout: 60_000 });
 
-    expect(chunkRequests, 'a resumed upload re-sent a chunk it had already delivered').toBe(1);
+    // The whole point, in two numbers: only the missing part was sent, and it
+    // was sent from where the interruption stopped.
+    expect(uploaded, 'a resumed upload re-sent bytes the computer already had').toBe(
+      payload.length - CHUNK,
+    );
+    expect(resumedOffsets, 'a resumed upload did not continue from the committed offset').toEqual([
+      CHUNK,
+    ]);
   });
 });
+
+/** The `offset` query parameter of an upload request. */
+function offsetOf(url: string): number {
+  return Number(new URL(url).searchParams.get('offset') ?? -1);
+}

@@ -20,6 +20,7 @@
   import ProtectionNotice from '../lib/ProtectionNotice.svelte';
   import SendPanel from '../lib/SendPanel.svelte';
   import MobilePicker from '../lib/MobilePicker.svelte';
+  import DeviceList from '../lib/DeviceList.svelte';
   import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -31,6 +32,19 @@
     name: string;
     kind: string;
     paired: boolean;
+  }
+
+  /** A computer seen on the network that this device has not paired with. */
+  interface Discovered {
+    id: string;
+    name: string;
+    label: string;
+    kind: string;
+    platform?: string;
+    addresses: string[];
+    reachable?: boolean;
+    source: string;
+    version: number;
   }
 
   let session = $state<Session | null>(null);
@@ -45,6 +59,8 @@
   let pendingRevision = $state(0);
 
   let devices = $state<Device[]>([]);
+  let discovered = $state<Discovered[]>([]);
+  let discovery = $state<{ available: boolean; reason?: string }>({ available: true });
   let transfers = $state<Transfer[]>([]);
   let sender = $state<Sender | null>(null);
   let uploader = $state<Uploader | null>(null);
@@ -107,6 +123,13 @@
     startClients(active);
     openStream(active);
     void loadDevices(active);
+    // Reconciled here as well as on every stream connect, and deliberately not
+    // only there. A page that has a session can read the queue; making the list
+    // of transfers wait for the event stream means a page whose stream is slow
+    // to come up shows nothing at all, and on a loaded machine that is a real
+    // state to be in for several seconds. FR-036 asks for transfers in progress
+    // to be visible, not for them to be visible once SSE agrees.
+    void reconcile(active);
   }
 
   function startClients(active: Session): void {
@@ -153,8 +176,14 @@
 
   async function loadDevices(active: Session): Promise<void> {
     try {
-      const body = await active.request<{ devices: Device[] }>('GET', '/api/devices');
+      const body = await active.request<{
+        devices: Device[];
+        discovered?: Discovered[];
+        discovery?: { available: boolean; reason?: string };
+      }>('GET', '/api/devices');
       devices = body.devices ?? [];
+      discovered = body.discovered ?? [];
+      discovery = body.discovery ?? { available: true };
     } catch (failure) {
       onPairingError(failure);
     }
@@ -236,9 +265,14 @@
       return;
     }
 
-    // A device opened or closed its page, which changes whether it can be sent
-    // to. The list is otherwise a snapshot from when this page loaded.
-    if (event.type === 'device_appeared' || event.type === 'device_lost') {
+    // A device opened or closed its page, or the set of machines seen on the
+    // network moved. Either way the list is otherwise a snapshot from when this
+    // page loaded, and FR-008 forbids making the user refresh it.
+    if (
+      event.type === 'device_appeared' ||
+      event.type === 'device_lost' ||
+      event.type === 'discovery_changed'
+    ) {
       if (session) void loadDevices(session);
       return;
     }
@@ -398,13 +432,23 @@
       Which panel appears follows from which device this is, not from a
       preference, because only one of the two mechanisms works on each.
     -->
-    {#if desktop && sender}
-      <SendPanel
+    <!--
+      Only the desktop. Discovery is computer to computer — a phone exists
+      through its browser and never advertises — and adding a device by address
+      is restricted to loopback for the same reason every other trust change is.
+    -->
+    {#if desktop && session}
+      <DeviceList
+        {session}
         devices={peers}
-        {sender}
-        onsent={noteTransfer}
-        onerror={onPairingError}
+        {discovered}
+        {discovery}
+        onchanged={() => session && loadDevices(session)}
       />
+    {/if}
+
+    {#if desktop && sender}
+      <SendPanel devices={peers} {sender} onsent={noteTransfer} onerror={onPairingError} />
     {:else if !desktop && uploader}
       <MobilePicker
         targetName={host.name}

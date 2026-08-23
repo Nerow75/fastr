@@ -46,6 +46,9 @@ const (
 	CodeAcceptanceTimeout Code = "acceptance_timeout"
 	CodeRelayUnavailable  Code = "relay_unavailable"
 
+	// Discovery.
+	CodeDeviceUnreachable Code = "device_unreachable"
+
 	// Requests.
 	CodeInvalidPath    Code = "invalid_path"
 	CodeInvalidRequest Code = "invalid_request"
@@ -83,6 +86,8 @@ var catalogue = map[Code]entry{
 	CodeDeclined:          {http.StatusForbidden, "error.transfer_declined", false},
 	CodeAcceptanceTimeout: {http.StatusRequestTimeout, "error.acceptance_timeout", false},
 	CodeRelayUnavailable:  {http.StatusServiceUnavailable, "error.relay_unavailable", false},
+
+	CodeDeviceUnreachable: {http.StatusNotFound, "error.device_unreachable", false},
 
 	CodeInvalidPath:    {http.StatusBadRequest, "error.invalid_path", true},
 	CodeInvalidRequest: {http.StatusBadRequest, "error.invalid_request", false},

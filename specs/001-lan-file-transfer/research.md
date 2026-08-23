@@ -170,9 +170,25 @@ documented fallback.
 implement. The service record carries the device name, a stable device identifier, the protocol
 version, and the port, which is enough to populate the device list without contacting anything.
 
-**Library**: `libp2p/zeroconf/v2`, chosen as the maintained fork in the lineage of
-`grandcat/zeroconf`, pure Go, no cgo. **Flagged**: maintenance activity to be confirmed at
-implementation time, with `hashicorp/mdns` as the fallback.
+**Library**: `hashicorp/mdns`, pure Go, no cgo.
+
+*Amended 2026-08-23, at implementation time.* The original choice was
+`libp2p/zeroconf/v2`, flagged here with maintenance activity to be confirmed when the code was
+written and `hashicorp/mdns` named as the fallback. The check was made and the flag fired: the
+last `libp2p/zeroconf/v2` release is v2.2.0 from August 2022, four years old, against v1.0.7 from
+June 2026 for the fallback. `brutella/dnssd` was also weighed and rejected: more recent than
+zeroconf but it pulls `vishvananda/netlink` and `netns`, Linux-specific plumbing that adds weight
+and a parity risk on Windows for no benefit here.
+
+The cost of the fallback is that it offers a query rather than a subscription, and does not
+surface goodbye packets. Neither matters. A query whose listener is held open *is* a
+subscription, because responders announce themselves unprompted when they start; and a record
+going away was never allowed to remove a device anyway, since the contract confirms reachability
+against `/connect` rather than against the record.
+
+Both libraries rest on `miekg/dns`, which is the whole of the transitive cost either way. The
+current one brings a newer copy of it, and with it `x/net`, `x/sync`, `x/mod` and `x/tools` as
+indirect dependencies. Nothing here is a direct dependency beyond the one line in `go.mod`.
 
 **Alternatives considered**: broadcast or multicast pings of the project's own design would avoid
 a dependency but reimplement service discovery badly. Restrictive networks that block multicast
@@ -305,7 +321,7 @@ in its row below.
 
 | Dependency | Why it is not the standard library |
 |---|---|
-| `libp2p/zeroconf/v2` | mDNS and DNS-SD are not in the standard library, and reimplementing service discovery is a project of its own. |
+| `hashicorp/mdns` | mDNS and DNS-SD are not in the standard library, and reimplementing service discovery is a project of its own. Replaced `libp2p/zeroconf/v2` at implementation time; see section 8. |
 | `fyne.io/systray` | Tray integration is per-platform system API work. |
 | `go.etcd.io/bbolt` | Transactional durable storage without cgo. |
 | `golang.org/x/crypto` | X25519, HKDF, ChaCha20-Poly1305, BLAKE2b. Effectively an extension of the standard library. |

@@ -320,8 +320,11 @@ func (d Deps) handleDevices(s *Session, w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	known := make(map[string]bool, len(devices))
 	out := make([]deviceView, 0, len(devices))
 	for _, dev := range devices {
+		known[dev.ID] = true
+
 		view := deviceView{
 			ID: dev.ID, Name: dev.Name, Platform: dev.Platform,
 			Kind: string(dev.Kind), LastSeen: dev.LastSeen,
@@ -338,7 +341,16 @@ func (d Deps) handleDevices(s *Session, w http.ResponseWriter, r *http.Request) 
 		out = append(out, view)
 	}
 
-	s.writeJSON(w, r, http.StatusOK, map[string]any{"devices": out})
+	// One list, not two. A person thinks about the machines around them, some
+	// of which they have connected to before; splitting the screen into "paired
+	// devices" and "computers on the network" would make them do the merge.
+	// Discovered rows are unpaired by construction: being on the network buys
+	// an address to connect to and nothing else (FR-010).
+	s.writeJSON(w, r, http.StatusOK, map[string]any{
+		"devices":    out,
+		"discovered": d.discovered(known),
+		"discovery":  d.discoveryStatus(),
+	})
 }
 
 type pairingView struct {

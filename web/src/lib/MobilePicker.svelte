@@ -34,14 +34,7 @@
     onerror: (failure: unknown) => void;
   }
 
-  let {
-    targetName,
-    targetDeviceId,
-    uploader,
-    unfinished = [],
-    onsent,
-    onerror,
-  }: Props = $props();
+  let { targetName, targetDeviceId, uploader, unfinished = [], onsent, onerror }: Props = $props();
 
   let files = $state<File[]>([]);
   let busy = $state(false);

@@ -8,6 +8,7 @@ import (
 	"rsc.io/qr"
 
 	"github.com/Nerow75/fastr/internal/app"
+	"github.com/Nerow75/fastr/internal/localnet"
 )
 
 // The QR code, per FR-002.
@@ -105,5 +106,5 @@ func isLocalURL(raw string) bool {
 	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
 		rest = rest[:i]
 	}
-	return rest != "" && IsLocalAddr(rest)
+	return rest != "" && localnet.IsAddr(rest)
 }

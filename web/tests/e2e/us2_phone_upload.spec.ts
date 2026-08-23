@@ -125,7 +125,15 @@ test.describe('sending from a phone', () => {
         mimeType: 'text/plain',
         buffer: Buffer.from(contents),
       });
-      await panel.getByRole('button', { name: 'Send', exact: true }).click();
+
+      // The panel offers Cancel rather than Send while an upload is running,
+      // and the previous iteration's assertion is satisfied the moment the file
+      // is on disk — a beat before the upload actually finishes. Waiting for
+      // Send is waiting for the panel to be ready, which is what a person
+      // sending a second file would do.
+      const button = panel.getByRole('button', { name: 'Send', exact: true });
+      await expect(button).toBeEnabled({ timeout: 30_000 });
+      await button.click();
 
       await expect(async () => {
         expect(readFileSync(path.join(fastr.receiveDir, 'note.txt'), 'utf8')).toBe('the first one');

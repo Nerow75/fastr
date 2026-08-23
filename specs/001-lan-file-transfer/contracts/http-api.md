@@ -185,10 +185,18 @@ client spends one authenticated, sealed request on a **single-use ticket that
 expires in 30 seconds**. A ticket recovered from history is worthless by the
 time anyone reads it, and revocation invalidates an unredeemed one.
 
-One stream per client. Event types: `device_appeared`, `device_lost`, `pairing_pending`,
+One stream per client. Event types: `discovery_changed`, `device_appeared`, `device_lost`, `pairing_pending`,
 `pairing_changed`, `transfer_queued`, `transfer_started`, `transfer_progress`,
 `transfer_interrupted`, `transfer_resumed`, `transfer_completed`, `transfer_failed`,
 `transfer_cancelled`, `queue_changed`, `sweep_removed`.
+
+`discovery_changed` says the set of devices seen on the network moved: one
+appeared, one was confirmed unreachable, or a name changed. It carries no
+payload, because what changed is the whole list and each client reads it back
+scoped to itself. It is distinct from `device_appeared` and `device_lost`, which
+are about a paired device opening or closing its event stream — a different
+question with a different answer: a computer can be discoverable without having
+a page open, and a phone has a page open without ever being discoverable.
 
 `transfer_progress` is throttled to at most 4 events per second per transfer. The accessibility
 layer announces only `transfer_started`, `transfer_interrupted`, `transfer_resumed`,

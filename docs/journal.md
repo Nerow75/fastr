@@ -8,6 +8,83 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-23 — User Story 4: several devices on the network
+
+Tasks: 95 → 105 of 159. Phase 6 complete.
+
+### The library decision the plan deferred
+
+research.md item 8 chose `libp2p/zeroconf/v2` and **flagged its maintenance to be
+confirmed at implementation time**, naming `hashicorp/mdns` as the fallback.
+That check came due, and the flag fired: zeroconf's last release is four years
+old, the fallback's is two months. `brutella/dnssd` was weighed and rejected —
+newer, but it pulls Linux-specific netlink plumbing that adds a parity risk on
+Windows for no benefit. research.md is amended with the reasoning rather than
+quietly updated.
+
+The fallback offers a query where the other offered a subscription, and neither
+matters: a query whose listener stays open *is* a subscription, because
+responders announce themselves unprompted when they start. That is why discovery
+lands in about 50 ms and why the idle cost is one re-query a minute rather than
+a poll.
+
+### The record is a hint, never an authority
+
+This is the rule the whole package is built on. A service record can outlive the
+process that published it, and anything on the network can publish one. So:
+
+- The record populates the list; **`/connect` decides the dot**. A machine that
+  closed its lid leaves a record behind, and offering it as a destination
+  produces a transfer that sits at nothing.
+- An address answering as a *different* device is refused. DHCP reassigns
+  addresses constantly, and sending a file to whoever currently holds one is
+  precisely what must not happen.
+- Nothing in a record is ever an input to an access decision. Being on the
+  network buys an address to connect to; pairing is still a code typed by a
+  human.
+- A record naming a public address is dropped at parse time rather than probed.
+
+### The first outbound request this project has ever made
+
+Reachability is the first time fastr connects *out* to anything, so it came with
+`internal/localnet`: the address classifier moved there from the HTTP layer, and
+it now also owns the only HTTP client the application is allowed to build — one
+whose dialer refuses a non-local address, whose redirects are refused outright,
+and which ignores proxy environment variables. The linter already forbade
+`http.Get`, `http.DefaultClient` and `net.Dial`; this is what it was forbidding
+them *in favour of*.
+
+The manual address field is the one place in the product where a person can name
+an arbitrary host. A public address is refused with a reason, and so is a host
+name — resolving one is itself a request off the local network.
+
+### A flaky browser test, and what it actually was
+
+Adding discovery made the browser suite fail intermittently, which looked like
+discovery slowing the server down. It was not: the same tests fail under the
+same artificial load on the commit *before* discovery, verified in a worktree.
+Two real problems came out of chasing it:
+
+1. **Reconciliation waited for the event stream.** A page could read the queue
+   as soon as it had a session, but only did so when SSE connected — so a page
+   whose stream was slow showed no transfers at all. It now reconciles on load
+   as well. FR-036 asks for transfers in progress to be visible, not for them to
+   be visible once SSE agrees.
+2. **The test measured with the wrong instrument.** It counted upload requests
+   with a `page.on('request')` listener, which under load reported none while
+   the file demonstrably arrived. Measuring through a **route** instead — the
+   same mechanism that withheld the chunk — is authoritative: a request that is
+   not intercepted is not sent. The assertion is now bytes and offset rather
+   than a count, which is also a better statement of what SC-005 means.
+
+### Verified
+
+326 Go tests, 7 browser tests, three full browser runs under load. The real
+binary was checked to be discoverable from a separate process, at its LAN
+address, with reachability confirmed.
+
+---
+
 ## 2026-08-22 — User Story 3: surviving an interruption
 
 Tasks: 83 → 95 of 159. Phase 5 complete.

@@ -7,16 +7,19 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/Nerow75/fastr/internal/app"
 	"github.com/Nerow75/fastr/internal/assets"
 	"github.com/Nerow75/fastr/internal/config"
+	"github.com/Nerow75/fastr/internal/discovery"
 	"github.com/Nerow75/fastr/internal/httpapi"
 	"github.com/Nerow75/fastr/internal/i18n"
 	"github.com/Nerow75/fastr/internal/pairing"
@@ -180,6 +183,17 @@ func run(args []string) error {
 		})
 	}
 
+	// Discovery. The browser is created before the router because the device
+	// list reads it, and started after the listeners because there is no point
+	// announcing a machine that is not yet answering.
+	browser := discovery.NewBrowser(selfID, log)
+	prober := discovery.NewProber()
+	browser.OnChange(func() {
+		// The whole list moved; each page reads it back scoped to itself.
+		// FR-008: no manual refresh.
+		events.Publish(httpapi.Event{Type: httpapi.EventDiscoveryChanged})
+	})
+
 	// Declared before the router and assigned after Start, because the
 	// invitation endpoint has to report addresses that do not exist until the
 	// listeners are bound. The closure reads it at call time, never at build
@@ -208,7 +222,10 @@ func run(args []string) error {
 		// Trusted mode has its own listener, which does not exist yet. Until
 		// it does, no request is trusted, and a device that requires trusted
 		// mode is refused with an explanation rather than quietly downgraded.
-		Trusted: func(*http.Request) bool { return false },
+		Trusted:   func(*http.Request) bool { return false },
+		Discovery: browser,
+		Browser:   browser,
+		Prober:    prober,
 	})
 
 	server = httpapi.New(httpapi.Options{Logger: log, Bundle: bundle, Router: router})
@@ -217,6 +234,13 @@ func run(args []string) error {
 	if err := server.Start(settings.BoundInterfaces, portFor(settings, f)); err != nil {
 		return err
 	}
+
+	// Discovery starts only now. FR-001 makes listening an explicit act, and
+	// announcing this machine's name to everyone on the network is exactly the
+	// kind of thing that must not happen before the user asks for it.
+	discovering, stopDiscovery := context.WithCancel(context.Background())
+	defer stopDiscovery()
+	startDiscovery(discovering, server, browser, prober, settings.DeviceName, selfID, plat, log)
 
 	addresses := server.Addresses()
 	fmt.Printf("fastr %s is listening.\n", version)
@@ -246,6 +270,80 @@ func run(args []string) error {
 	defer sweeping()
 
 	return waitForShutdown(server, log)
+}
+
+// startDiscovery advertises this instance and begins looking for others.
+//
+// Nothing here can stop the application from working. A network that blocks
+// multicast is ordinary — offices and guest wifi both do it — and the answer is
+// the manual address field, not a refusal to run: a user who only ever sends
+// from their phone would otherwise be blocked by a feature they never use.
+// Every failure is therefore logged and reported through the device list rather
+// than returned.
+func startDiscovery(
+	ctx context.Context,
+	server *httpapi.Server,
+	browser *discovery.Browser,
+	prober *discovery.Prober,
+	deviceName, selfID string,
+	plat platform.Platform,
+	log *slog.Logger,
+) {
+	addresses := server.Addresses()
+	ips, port := advertisableAddresses(addresses)
+
+	if port == 0 {
+		log.Info("not advertising: no local address to publish")
+	} else {
+		published, err := discovery.Advertise(discovery.Advertisement{
+			DeviceID:  selfID,
+			Name:      deviceName,
+			OS:        string(plat.OS()),
+			Port:      port,
+			Addresses: ips,
+			Log:       log,
+		})
+		if err != nil {
+			log.Info("not advertising on this network; other computers will need the address typed in",
+				"error", err)
+		} else {
+			context.AfterFunc(ctx, func() { _ = published.Close() })
+		}
+	}
+
+	browser.Start(ctx)
+	// Reachability on a slower beat than browsing. A record arriving is news;
+	// a device that answered thirty seconds ago almost certainly still answers,
+	// and probing every machine on the network more often than that is a worse
+	// neighbour than the staleness it removes.
+	go prober.Watch(ctx, browser, 30*time.Second)
+}
+
+// advertisableAddresses picks what to publish from what the server bound.
+//
+// Loopback is dropped: a record telling other machines to connect to 127.0.0.1
+// points every one of them at itself. If loopback is all there is, there is
+// nothing to advertise and saying so beats publishing a record that cannot
+// work.
+func advertisableAddresses(bound []string) ([]net.IP, int) {
+	var ips []net.IP
+	port := 0
+
+	for _, address := range bound {
+		host, portText, err := net.SplitHostPort(address)
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+			continue
+		}
+		if number, err := strconv.Atoi(portText); err == nil {
+			port = number
+		}
+		ips = append(ips, ip)
+	}
+	return ips, port
 }
 
 // startSweeper runs the retention sweep now and once a day, and returns a

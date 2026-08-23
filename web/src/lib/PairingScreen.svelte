@@ -60,7 +60,6 @@
     controller?.abort();
   }
 
-
   function defaultName(): string {
     return desktop ? 'This computer' : 'Phone';
   }
@@ -80,32 +79,32 @@
     <p>{t('pairing.scan_instruction')}</p>
 
     <form onsubmit={submit}>
-    <div class="field">
-      <label for="pairing-code">{t('pairing.code_label')}</label>
-      <input
-        id="pairing-code"
-        name="code"
-        bind:value={code}
-        type="text"
-        inputmode="numeric"
-        autocomplete="one-time-code"
-        maxlength={CODE_LENGTH}
-        pattern="[0-9]{'{'}{CODE_LENGTH}{'}'}"
-        required
-      />
-    </div>
+      <div class="field">
+        <label for="pairing-code">{t('pairing.code_label')}</label>
+        <input
+          id="pairing-code"
+          name="code"
+          bind:value={code}
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength={CODE_LENGTH}
+          pattern="[0-9]{'{'}{CODE_LENGTH}{'}'}"
+          required
+        />
+      </div>
 
-    <div class="field">
-      <label for="device-name">{t('settings.device_name')}</label>
-      <input
-        id="device-name"
-        name="device_name"
-        bind:value={deviceName}
-        type="text"
-        maxlength="64"
-        placeholder={defaultName()}
-      />
-    </div>
+      <div class="field">
+        <label for="device-name">{t('settings.device_name')}</label>
+        <input
+          id="device-name"
+          name="device_name"
+          bind:value={deviceName}
+          type="text"
+          maxlength="64"
+          placeholder={defaultName()}
+        />
+      </div>
 
       <button type="submit" disabled={!valid || busy}>
         {t('pairing.submit')}
