@@ -21,6 +21,8 @@
   import SendPanel from '../lib/SendPanel.svelte';
   import MobilePicker from '../lib/MobilePicker.svelte';
   import DeviceList from '../lib/DeviceList.svelte';
+  import QueueView from '../lib/QueueView.svelte';
+  import HistoryView from '../lib/HistoryView.svelte';
   import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -32,6 +34,7 @@
     name: string;
     kind: string;
     paired: boolean;
+    trust_mode?: string;
   }
 
   /** A computer seen on the network that this device has not paired with. */
@@ -60,6 +63,13 @@
 
   let devices = $state<Device[]>([]);
   let discovered = $state<Discovered[]>([]);
+  // What is waiting and what is running, as the server sees it. Read from the
+  // queue rather than derived from `transfers`, because the order is the
+  // server's and two pages must not disagree about it.
+  let queued = $state<Transfer[]>([]);
+  let runningNow = $state<Transfer | null>(null);
+  // Bumped whenever a transfer ends, so the history reloads without polling.
+  let historyRevision = $state(0);
   let discovery = $state<{ available: boolean; reason?: string }>({ available: true });
   let transfers = $state<Transfer[]>([]);
   let sender = $state<Sender | null>(null);
@@ -217,7 +227,10 @@
         active?: Transfer | null;
       }>('GET', '/api/queue');
 
-      const live = [...(queue.active ? [queue.active] : []), ...(queue.entries ?? [])];
+      queued = queue.entries ?? [];
+      runningNow = queue.active ?? null;
+
+      const live = [...(queue.active ? [queue.active] : []), ...queued];
       const known = new Set(live.map((tr) => tr.id));
 
       transfers = [...live, ...transfers.filter((tr) => !known.has(tr.id))];
@@ -243,6 +256,23 @@
     if (!sender) return;
     for (const transfer of transfers) {
       if (sender.holds(transfer.id)) await sender.resumeWaiting(transfer.id);
+    }
+  }
+
+  /**
+   * Answers an incoming transfer from an ask-every-time device.
+   *
+   * Only ever reaches the server for a transfer this device is the target of;
+   * the server refuses the rest, and the interface does not offer them.
+   */
+  async function answerTransfer(id: string, verb: 'accept' | 'decline'): Promise<void> {
+    if (!session) return;
+    try {
+      await session.request('POST', `/api/transfers/${encodeURIComponent(id)}/${verb}`, {});
+      void refreshTransfer(id);
+      void reconcile(session);
+    } catch (failure) {
+      onPairingError(failure);
     }
   }
 
@@ -324,8 +354,23 @@
 
     void refreshTransfer(event.transfer_id);
 
+    // The queue moved. Read back rather than guessed at, because the order is
+    // the server's and two pages must not disagree about it. Progress events
+    // are excluded deliberately: they arrive four times a second and never
+    // change what is queued.
+    if (
+      session &&
+      ['transfer_queued', 'transfer_started', 'transfer_interrupted'].includes(event.type)
+    ) {
+      void reconcile(session);
+    }
+
     if (['transfer_completed', 'transfer_failed', 'transfer_cancelled'].includes(event.type)) {
       sender?.release(event.transfer_id);
+      // Something ended, so both the queue and the record of what happened
+      // moved. FR-036 and FR-037.
+      historyRevision += 1;
+      if (session) void reconcile(session);
     }
   }
 
@@ -460,6 +505,20 @@
       />
     {/if}
 
+    <!--
+      The queue and the record of what happened. Both are the desktop's: the
+      queue is this machine's single slot, and the history is what happened
+      here, including with a phone that is no longer in the house.
+    -->
+    {#if desktop && session}
+      <QueueView
+        {session}
+        entries={queued}
+        active={runningNow}
+        onchanged={() => session && reconcile(session)}
+      />
+    {/if}
+
     <section aria-labelledby="transfers-title">
       <h2 id="transfers-title">{t('nav.transfers')}</h2>
       {#if transfers.length === 0}
@@ -471,10 +530,15 @@
             {session}
             sending={sender?.holds(transfer.id) ?? false}
             oncancel={cancelTransfer}
+            onanswer={answerTransfer}
           />
         {/each}
       {/if}
     </section>
+
+    {#if session}
+      <HistoryView {session} canClear={desktop} revision={historyRevision} />
+    {/if}
   {/if}
 </main>
 

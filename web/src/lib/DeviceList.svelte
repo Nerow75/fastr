@@ -25,6 +25,8 @@
     kind: string;
     paired: boolean;
     connected?: boolean;
+    /** 'auto' or 'ask'. Absent for a device that is not paired. */
+    trust_mode?: string;
   }
 
   interface DiscoveredDevice {
@@ -54,6 +56,8 @@
   let address = $state('');
   let adding = $state(false);
   let failure = $state<string | null>(null);
+  /** The device whose removal is being confirmed, if any. */
+  let removing = $state<string | null>(null);
 
   let canAdd = $derived(address.trim() !== '' && !adding);
 
@@ -77,6 +81,39 @@
       failure = error instanceof ApiFailure ? formatApiError(error.body) : t('error.internal');
     } finally {
       adding = false;
+    }
+  }
+
+  /**
+   * Changes whether a device may write here without anyone looking.
+   *
+   * Takes effect on the next transfer rather than on the next pairing, which is
+   * what FR-016b means by immediately: a phone that was mine becomes a phone I
+   * lent to someone, and waiting a year for that to matter would be useless.
+   */
+  async function setTrust(device: PairedDevice, mode: string): Promise<void> {
+    failure = null;
+    try {
+      await session.request('PATCH', `/api/pairings/${encodeURIComponent(device.id)}`, {
+        trust_mode: mode,
+      });
+      announce(t('device.trust_changed', { name: device.name, mode: t(`device.trust.${mode}`) }));
+      onchanged();
+    } catch (error) {
+      failure = error instanceof ApiFailure ? formatApiError(error.body) : t('error.internal');
+    }
+  }
+
+  /** Removes a device's access. FR-015: immediately, not at the next restart. */
+  async function revoke(device: PairedDevice): Promise<void> {
+    failure = null;
+    try {
+      await session.request('DELETE', `/api/pairings/${encodeURIComponent(device.id)}`, {});
+      removing = null;
+      announce(t('device.revoked', { name: device.name }));
+      onchanged();
+    } catch (error) {
+      failure = error instanceof ApiFailure ? formatApiError(error.body) : t('error.internal');
     }
   }
 
@@ -105,6 +142,43 @@
           <span class="tag" class:live={device.connected}>
             {device.connected ? t('device.reachable') : t('device.unreachable')}
           </span>
+
+          {#if device.paired}
+            <!--
+              FR-016c: the trust mode is visible wherever paired devices are
+              listed, so the user can tell at a glance which of them can write
+              to this machine unattended. It is a control rather than a label,
+              because seeing it and wanting to change it are the same moment.
+            -->
+            <label class="sr-only" for={`trust-${device.id}`}>
+              {t('device.trust_label', { name: device.name })}
+            </label>
+            <select
+              id={`trust-${device.id}`}
+              value={device.trust_mode ?? 'auto'}
+              onchange={(event) =>
+                setTrust(device, (event.currentTarget as HTMLSelectElement).value)}
+            >
+              <option value="auto">{t('device.trust.auto')}</option>
+              <option value="ask">{t('device.trust.ask')}</option>
+            </select>
+
+            {#if removing === device.id}
+              <span class="confirm">{t('device.revoke_confirm', { name: device.name })}</span>
+              <button type="button" onclick={() => (removing = null)}>{t('action.cancel')}</button>
+              <button type="button" class="danger" onclick={() => revoke(device)}>
+                {t('device.revoke')}
+              </button>
+            {:else}
+              <button
+                type="button"
+                onclick={() => (removing = device.id)}
+                aria-label={t('device.revoke_named', { name: device.name })}
+              >
+                {t('device.revoke')}
+              </button>
+            {/if}
+          {/if}
         </li>
       {/each}
     </ul>
@@ -219,6 +293,26 @@
   .tag.live {
     color: var(--accent);
     border-color: var(--accent);
+  }
+
+  select {
+    min-height: 2.75rem;
+    font-size: 0.875rem;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .confirm {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .danger {
+    border-color: var(--danger);
+    color: var(--danger);
   }
 
   .open {

@@ -19,9 +19,22 @@
     /** True when this page is the one holding the files. */
     sending: boolean;
     oncancel: (id: string) => void;
+    /** Answers an incoming transfer from an ask-every-time device. */
+    onanswer?: (id: string, verb: 'accept' | 'decline') => void;
   }
 
-  let { transfer, session, sending, oncancel }: Props = $props();
+  let { transfer, session, sending, oncancel, onanswer }: Props = $props();
+
+  /**
+   * Waiting for a human on this device, per FR-016a.
+   *
+   * Only the target is asked, and the target is whoever this page is: a sender
+   * that could accept on the recipient's behalf would make the whole setting
+   * decorative, and the server refuses it anyway.
+   */
+  let awaiting = $derived(
+    transfer.state === 'awaiting_acceptance' && transfer.target_device_id === session.deviceId,
+  );
 
   let percent = $derived(
     transfer.total_bytes === 0
@@ -108,6 +121,28 @@
     </p>
   {/if}
 
+  {#if awaiting}
+    <!--
+      The question, and both answers, on the device being written to. It says
+      what is being asked rather than only who is asking: "allow this" is not a
+      decision anyone can make without knowing what "this" is.
+    -->
+    <p class="asking" role="status">
+      {t('transfer.acceptance_question', {
+        count: transfer.items.length,
+        size: formatBytes(transfer.total_bytes),
+      })}
+    </p>
+    <div class="actions">
+      <button type="button" class="primary" onclick={() => onanswer?.(transfer.id, 'accept')}>
+        {t('transfer.accept')}
+      </button>
+      <button type="button" onclick={() => onanswer?.(transfer.id, 'decline')}>
+        {t('transfer.decline')}
+      </button>
+    </div>
+  {/if}
+
   {#if interrupted}
     <!--
       Says the thing the user needs to know and nothing else: what has already
@@ -178,6 +213,18 @@
     margin: 0.5rem 0 0;
     font-size: 0.875rem;
     color: var(--text-muted);
+  }
+
+  /* A question, not a warning: nothing has gone wrong, someone is being asked. */
+  .asking {
+    margin: 0.5rem 0 0;
+    font-size: 0.9375rem;
+  }
+
+  .primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
   }
 
   header {

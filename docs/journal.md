@@ -8,6 +8,82 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-23 — User Story 5: controllable, and trustworthy
+
+Tasks: 105 → 121 of 159. Phase 7 complete.
+
+### A task worth correcting rather than satisfying
+
+T104 asked for "the sequential queue runner". No runner was written, and that is
+the point: **a runner implies the server drives transfers, and it cannot.** In
+both directions the bytes come from a browser — pushed as chunks, or supplied
+into a pipe — so nothing on this machine can start anything. The queue does not
+run transfers; it decides which one is allowed to move when its owner next
+tries.
+
+The invariant therefore lives where it can actually be enforced, in
+`store.Activate`: the single place a transfer can take the active slot, and so
+the single place it can be refused. Ten transfers all trying to start in the
+same instant produce exactly one winner, which is what SC-021 asks and what a
+runner would have made harder to prove.
+
+### The gap that was actually there
+
+Pairing answers "may this device talk to me at all". The trust mode answers a
+narrower question that comes up on every transfer: **may it write to my disk
+without anyone looking?** The two are separate because a pairing lasts a year
+and the second answer changes inside one — a phone that was mine becomes a phone
+I lent to someone.
+
+`ask` mode existed in the store and in the interface and did nothing. Now an
+incoming transfer from such a device waits in `awaiting_acceptance`, and nothing
+it sends reaches staging before a human answers. Nobody answering is also an
+answer, after two minutes: FR-016d, because a transfer queued forever holds both
+the sender's attention and a place in a queue that runs one thing at a time.
+
+That required amending the state machine. Accepting returns a transfer to
+`queued` rather than jumping to `running`: acceptance and scheduling are
+different questions, and jumping would take the active slot from whatever is
+already using it.
+
+One thing the tests caught: accepting a transfer that had already ended returned
+success. Two taps on a button should not fail, but "fine" for something that
+timed out or was declined is the opposite of the truth. It now reports which.
+
+### The history had no endpoints at all
+
+`RecordHistory` had been writing entries since User Story 1 and nothing could
+read them. It is **this machine's** history rather than a per-device view,
+because the person asking is the one sitting here and what they want to know
+includes the phone that is no longer in the house. Clearing is loopback only: a
+paired phone erasing the record of what it sent is exactly backwards.
+
+Every row says which protection mode was used. In simple mode the content was
+readable by anyone on the network, and Principle V's honesty duty makes it the
+user's business which of their transfers that was true for.
+
+### Two shapes changed on the way
+
+**T112 was folded into the existing device list** rather than built as a second
+`DeviceSettings.svelte`. FR-016c asks for the trust mode to be visible *wherever
+paired devices are listed*, and a second panel listing the same devices would
+have given the user two lists and a question about which one to use.
+
+**A defect the browser test found:** the queue view refreshed only when a
+transfer *ended*, so a newly queued one never appeared until something else
+finished — which is precisely backwards for a panel whose job is to show what is
+waiting. It now reads the queue back on the events that change it, and
+deliberately not on progress, which arrives four times a second and never moves
+anything.
+
+### Verified
+
+351 Go tests, 9 browser tests, `golangci-lint` clean, Windows builds. The queue
+test reloads the page after reordering, so what it asserts is the order the
+server holds rather than the one the page remembers.
+
+---
+
 ## 2026-08-23 — User Story 4: several devices on the network
 
 Tasks: 95 → 105 of 159. Phase 6 complete.
