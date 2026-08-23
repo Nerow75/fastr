@@ -8,6 +8,86 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-23 — Trusted mode, as far as it can go without a phone
+
+Tasks: 131 → 141 of 159. Phase 9 is complete except for the two things that
+need hardware, and those are marked rather than glossed.
+
+### What it is, and why it exists at all
+
+Not a preference. Browsers grant a secure context only to loopback, and outside
+one there is no service worker — so nothing can decrypt a stream while the
+browser writes it to disk, so a large encrypted file could only be received by
+holding it whole in memory, which iOS will not allow. A certificate the device
+already trusts is the **only** route to that context on a LAN address.
+
+Which means asking somebody to install a certificate authority on their phone.
+That is a real security decision: anything holding its private key can
+impersonate any site to that device. So the key is generated per installation
+and never shipped — a shared authority would be a master key for every fastr
+user alive — written 0600 in a directory created 0700, and never handed out. The
+certificate carries a fingerprint to compare against what the phone displays,
+because otherwise "install this" means "trust whatever arrived".
+
+### Alongside, never instead
+
+The TLS listener runs beside the plain one. A phone that never set trusted mode
+up keeps working exactly as before; a machine where nobody set it up serves no
+TLS and creates no key at all, which was verified by running the binary and
+finding no trust directory.
+
+Two ports rather than one port sniffing its first bytes. Sniffing works, and it
+is one more thing that can be wrong on a protocol whose whole job is to be
+trustworthy.
+
+Whether a request is trusted is read from the connection and never from a
+header. `/api/trust/verify` rests entirely on that: it can only succeed over the
+TLS listener, so a phone asserting over plain HTTP that it is trusted is
+asserting precisely what it has not done.
+
+### Three defects, all found by tests
+
+- **A confirmed downgrade overrode `require_trusted`.** The user set that device
+  to never connect in the clear; a confirmation on one transfer is not a reason
+  to override a standing instruction, or the setting would mean "ask me", which
+  is what the other one already means.
+- **Setup on a machine with no network address returned a 500.** That is a
+  laptop with its Wi-Fi off — something a person can fix — so it says so now.
+- **`init` answered unsealed while the client called it sealed.** Found by the
+  browser test, which is the only place the two halves meet.
+
+And one the linter found: `MaxPathLen` alone means *unset* in Go's x509 struct,
+so the authority had quietly permitted intermediate authorities — a longer chain
+of trust than the user agreed to when they installed it.
+
+### What is left, and why it is left
+
+**T133, the service worker**, and **T135, verifying the setup on real hardware.**
+Both need a physical phone. A service worker exists only in a secure context, so
+that code cannot run — let alone be tested — until an actual device has
+installed the authority and reached the HTTPS origin. Playwright over a LAN
+address is not a secure context either, so no browser test substitutes for it.
+
+The walkthrough's instructions are written from documentation rather than from
+having performed them. iOS in particular has two separate steps — install the
+profile, then enable full trust under Certificate Trust Settings — and people
+miss the second.
+
+**T137b**, the Windows key permissions, is the other open one, and CI found it:
+Windows does not implement POSIX permission bits, so the authority's key is
+written 0600 and reports 0666. In practice it inherits the ACL of
+`%LOCALAPPDATA%`, but that is the operating system's arrangement rather than a
+guarantee fastr makes, and this is the most sensitive artefact in the product.
+It blocks trusted mode on Windows and nothing else.
+
+### Verified
+
+391 Go tests, 11 browser tests, `golangci-lint` clean. The capture test that
+holds SC-016 runs the same payload over a plain connection as a control,
+because a test that finds nothing proves nothing.
+
+---
+
 ## 2026-08-23 — User Story 6: relaying between two phones
 
 Tasks: 121 → 131 of 159. Phase 8 complete, and with it all six user stories.

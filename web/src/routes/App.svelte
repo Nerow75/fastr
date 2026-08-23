@@ -24,6 +24,7 @@
   import QueueView from '../lib/QueueView.svelte';
   import HistoryView from '../lib/HistoryView.svelte';
   import RelayView from '../lib/RelayView.svelte';
+  import TrustedSetup from '../lib/TrustedSetup.svelte';
   import TransferProgress from '../lib/TransferProgress.svelte';
 
   // The shell decides three things: which language to render in, whether this
@@ -71,6 +72,8 @@
   let runningNow = $state<Transfer | null>(null);
   // Bumped whenever a transfer ends, so the history reloads without polling.
   let historyRevision = $state(0);
+  // Bumped on every pairing change, so the trusted-mode panel follows.
+  let pairingRevision = $state(0);
   let discovery = $state<{ available: boolean; reason?: string }>({ available: true });
   let transfers = $state<Transfer[]>([]);
   let sender = $state<Sender | null>(null);
@@ -129,11 +132,31 @@
     }
   }
 
+  /**
+   * Tells the computer this device has reached the trusted origin.
+   *
+   * Only from an HTTPS page, and the server checks the same thing on its side
+   * from the connection: the proof of trusted mode is arriving over it, and
+   * nothing a page says can substitute for that. Failing is not worth
+   * reporting — it means the certificate is not installed yet, which is the
+   * step the user is in the middle of.
+   */
+  async function claimTrusted(active: Session): Promise<void> {
+    if (window.location.protocol !== 'https:') return;
+    try {
+      await active.request('POST', '/api/trust/verify', {});
+      pairingRevision += 1;
+    } catch {
+      // Not there yet.
+    }
+  }
+
   function begin(active: Session): void {
     session = active;
     startClients(active);
     openStream(active);
     void loadDevices(active);
+    void claimTrusted(active);
     // Reconciled here as well as on every stream connect, and deliberately not
     // only there. A page that has a session can read the queue; making the list
     // of transfers wait for the event stream means a page whose stream is slow
@@ -309,6 +332,7 @@
     }
 
     if (event.type === 'pairing_changed') {
+      pairingRevision += 1;
       if (Session.restore()) {
         if (session) void loadDevices(session);
         return;
@@ -516,6 +540,15 @@
       What is passing through this machine between two other devices. It renders
       nothing unless something is, which is almost always. FR-056.
     -->
+    <!--
+      Trusted mode, set up from the computer. It renders nothing when the build
+      cannot do it, and it explains what it buys and what it costs before it
+      asks for anything. FR-047d.
+    -->
+    {#if desktop && session}
+      <TrustedSetup {session} revision={pairingRevision} />
+    {/if}
+
     {#if desktop && session}
       <RelayView {session} revision={historyRevision} oncancel={cancelTransfer} />
     {/if}

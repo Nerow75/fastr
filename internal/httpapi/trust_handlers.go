@@ -116,7 +116,10 @@ func (d Deps) trustStatus(r *http.Request) trustStatus {
 // Loopback only. Generating an authority is the most consequential thing this
 // product does — a key that can impersonate any site to every phone that
 // installs it — and it is the computer owner's decision, never a phone's.
-func (d Deps) handleTrustInit(w http.ResponseWriter, r *http.Request) {
+// Sealed like every other control-plane answer, and loopback-restricted on top
+// of that: the fingerprint is a fact about this machine's identity, and the
+// page asking is the one holding a session.
+func (d Deps) handleTrustInit(s *Session, w http.ResponseWriter, r *http.Request) {
 	if d.TrustDir == "" {
 		d.writeError(w, r, app.New(app.CodeNotFound))
 		return
@@ -155,7 +158,7 @@ func (d Deps) handleTrustInit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	d.writePlainJSON(w, http.StatusOK, map[string]any{
+	s.writeJSON(w, r, http.StatusOK, map[string]any{
 		"fingerprint":     authority.Fingerprint(),
 		"certificate_url": certificatePath,
 		"addresses":       trustedAddressesOf(d),

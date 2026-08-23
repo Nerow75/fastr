@@ -3,7 +3,6 @@ package integration
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -236,24 +235,24 @@ type trustInitBody struct {
 	Addresses      []string `json:"addresses"`
 }
 
-// initTrust performs the computer owner's half of the setup.
+// initTrust performs the computer owner's half of the setup, from the host's
+// own page: it is loopback-restricted *and* sealed, like every other request
+// that changes what this machine trusts.
 func (h *harness) initTrust(t *testing.T) trustInitBody {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/trust/init", nil)
-	req.RemoteAddr = "127.0.0.1:41234"
+	const path = "/api/trust/init"
+	host := h.host(t)
 
-	rec := httptest.NewRecorder()
-	h.server.Config.Handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("trust init: status %d: %s", rec.Code, rec.Body.String())
+	resp := host.do("POST", path, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("trust init: status %d: %s", resp.StatusCode, raw)
 	}
 
 	var out trustInitBody
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	host.open("POST", path, resp, &out)
 	return out
 }
 

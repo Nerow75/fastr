@@ -136,7 +136,7 @@ func NewRouter(d Deps) http.Handler {
 	// Trusted mode. Creating an authority is the computer owner's decision and
 	// never a phone's, so init is loopback only; status and verify are the
 	// phone's own, and verify can only succeed over the TLS listener.
-	mux.Handle("POST /api/trust/init", loopbackOnly(d, d.handleTrustInit))
+	mux.Handle("POST /api/trust/init", loopbackOnly(d, d.authenticated(d.handleTrustInit).ServeHTTP))
 	mux.Handle("GET /api/trust/status", d.authenticated(d.handleTrustStatus))
 	mux.Handle("POST /api/trust/verify", d.authenticated(d.handleTrustVerify))
 
