@@ -84,7 +84,8 @@ func (p *Prober) Identify(ctx context.Context, address string) (Identity, error)
 	if err != nil {
 		return Identity{}, err
 	}
-	defer resp.Body.Close()
+	// Read-only and already drained below; a failed close loses nothing.
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return Identity{}, fmt.Errorf("%s answered %d", address, resp.StatusCode)

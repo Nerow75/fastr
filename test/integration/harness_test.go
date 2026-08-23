@@ -351,7 +351,11 @@ func (h *harness) postExpecting(path string, body any, out any, want int) {
 		h.t.Fatalf("marshal: %v", err)
 	}
 
-	resp, err := http.Post(h.server.URL+path, "application/json", bytes.NewReader(payload)) //nolint:noctx // test client
+	// Raw on purpose: these endpoints are reached before a session exists, so
+	// there is no restricted client to route through yet, and the target is the
+	// test server on loopback.
+	//nolint:forbidigo,noctx // deliberate: unsealed pairing endpoint on a loopback test server
+	resp, err := http.Post(h.server.URL+path, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		h.t.Fatalf("POST %s: %v", path, err)
 	}

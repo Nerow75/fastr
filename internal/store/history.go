@@ -6,6 +6,7 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 // Outcome is how a transfer ended. Only terminal states appear here.
@@ -129,7 +130,7 @@ func (s *Store) History(limit int) ([]HistoryEntry, error) {
 // ClearHistory removes every entry. FR-039.
 func (s *Store) ClearHistory() error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		if err := tx.DeleteBucket(bucketHistory); err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
+		if err := tx.DeleteBucket(bucketHistory); err != nil && !errors.Is(err, bolterrors.ErrBucketNotFound) {
 			return err
 		}
 		_, err := tx.CreateBucketIfNotExists(bucketHistory)

@@ -48,8 +48,20 @@ func (d *device) declare(t *testing.T, target string, name string, size uint64) 
 	return out
 }
 
-// fetch pulls one item, returning the body and the response.
-func (d *device) fetch(t *testing.T, transferID string, index int, rangeHeader string) (*http.Response, []byte) {
+// fetched is one content request, after its body has been read and closed.
+//
+// The response object deliberately does not escape this helper. Returning it
+// would leave every caller holding something whose body is already closed,
+// which is both confusing and exactly what the body-close linter objects to;
+// the two fields anyone here actually reads are these.
+type fetched struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
+// fetch pulls one item and reads it to the end.
+func (d *device) fetch(t *testing.T, transferID string, index int, rangeHeader string) fetched {
 	t.Helper()
 
 	path := fmt.Sprintf("/api/transfers/%s/items/%d/content", transferID, index)
@@ -72,7 +84,7 @@ func (d *device) fetch(t *testing.T, transferID string, index int, rangeHeader s
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	return resp, body
+	return fetched{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: body}
 }
 
 // supply attaches content for a waiting fetch.
@@ -115,8 +127,8 @@ func TestTransferMovesAFileEndToEnd(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, body := receiver.fetch(t, tr.ID, 0, "")
-		status, received = resp.StatusCode, body
+		got := receiver.fetch(t, tr.ID, 0, "")
+		status, received = got.Status, got.Body
 	}()
 
 	// Wait for the receiver's demand to register, then supply it.
@@ -172,8 +184,7 @@ func TestDownloadCarriesTheSanitizedName(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, _ := receiver.fetch(t, tr.ID, 0, "")
-		disposition = resp.Header.Get("Content-Disposition")
+		disposition = receiver.fetch(t, tr.ID, 0, "").Header.Get("Content-Disposition")
 	}()
 
 	waitForPipe(t, h, 1)
@@ -204,27 +215,27 @@ func TestResumedFetchContinuesFromTheOffset(t *testing.T) {
 
 	tr := sender.declare(t, receiver.ID, "big.bin", uint64(len(whole)))
 
-	var resp *http.Response
-	var body []byte
+	var got fetched
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		resp, body = receiver.fetch(t, tr.ID, 0, fmt.Sprintf("bytes=%d-", resumeAt))
+		got = receiver.fetch(t, tr.ID, 0, fmt.Sprintf("bytes=%d-", resumeAt))
 	}()
 
 	waitForPipe(t, h, 1)
 	sender.supply(t, tr.ID, 0, resumeAt, whole[resumeAt:]).Body.Close()
 	wg.Wait()
 
-	if resp.StatusCode != http.StatusPartialContent {
-		t.Errorf("status = %d, want 206", resp.StatusCode)
+	if got.Status != http.StatusPartialContent {
+		t.Errorf("status = %d, want 206", got.Status)
 	}
-	if got := resp.Header.Get("Content-Range"); got != fmt.Sprintf("bytes %d-%d/%d", resumeAt, len(whole)-1, len(whole)) {
-		t.Errorf("Content-Range = %q", got)
+	want := fmt.Sprintf("bytes %d-%d/%d", resumeAt, len(whole)-1, len(whole))
+	if rangeHeader := got.Header.Get("Content-Range"); rangeHeader != want {
+		t.Errorf("Content-Range = %q, want %q", rangeHeader, want)
 	}
-	if !bytes.Equal(body, whole[resumeAt:]) {
-		t.Errorf("resumed body is %d bytes, want %d", len(body), len(whole)-resumeAt)
+	if !bytes.Equal(got.Body, whole[resumeAt:]) {
+		t.Errorf("resumed body is %d bytes, want %d", len(got.Body), len(whole)-resumeAt)
 	}
 }
 
@@ -383,8 +394,7 @@ func TestCancelReleasesAWaitingFetch(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		resp, _ := receiver.fetch(t, tr.ID, 0, "")
-		done <- resp.StatusCode
+		done <- receiver.fetch(t, tr.ID, 0, "").Status
 	}()
 
 	waitForPipe(t, h, 1)

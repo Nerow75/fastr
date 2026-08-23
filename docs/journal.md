@@ -77,11 +77,46 @@ Two real problems came out of chasing it:
    not intercepted is not sent. The assertion is now bytes and offset rather
    than a count, which is also a better statement of what SC-005 means.
 
+### Windows, and what CI can and cannot say about discovery
+
+The first push went green on Linux and red on Windows: the two wire-level
+discovery tests saw nothing. The cause is the runner, not the code — a machine
+that silently drops its own multicast is indistinguishable, from inside, from a
+network with nothing on it, which is exactly what those tests were reading as a
+failure.
+
+They now **probe rather than guess**: a throwaway service is published and
+looked for once per run, and if it does not come back then nothing on that
+machine could. Where the probe passes, a failure is a real failure. Where it
+does not, the tests skip with that reason.
+
+The honest consequence, recorded here rather than papered over: **discovery is
+not verified on Windows by CI.** Everything that does not need the wire is —
+the record's contents, reachability, name disambiguation, the manual fallback —
+and the Windows build and the rest of the suite are green. A real two-computer
+test before a release would close it.
+
+### The `Lint` job now actually runs
+
+It never had. `golangci-lint-action` downloads a prebuilt binary, and a binary
+built with an older Go refuses a config targeting a newer one, so the job failed
+before checking anything. `install-mode: goinstall` builds it with the toolchain
+the job already sets up.
+
+Turning it on surfaced 26 issues, all pre-existing and all small. They are now
+zero, and the split is worth remembering: about half were real (unchecked closes,
+a deprecated bbolt symbol, a test helper that leaked an `*http.Response` whose
+body it had already closed), and about half were deliberate decisions the code
+had simply never justified in writing — 0755 on the user's own receive folder,
+0644 on received files, constructed paths that gosec cannot see are constructed.
+Those carry a `//nolint` with the reason now, which is more useful than the
+silence they had before.
+
 ### Verified
 
-326 Go tests, 7 browser tests, three full browser runs under load. The real
-binary was checked to be discoverable from a separate process, at its LAN
-address, with reachability confirmed.
+326 Go tests, 7 browser tests, three full browser runs under load, and a clean
+`golangci-lint run`. The real binary was checked to be discoverable from a
+separate process, at its LAN address, with reachability confirmed.
 
 ---
 

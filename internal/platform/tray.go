@@ -56,13 +56,13 @@ func AcquireInstanceLock(dataDir string) (*InstanceLock, error) {
 	}
 
 	path := filepath.Join(dataDir, "fastr.lock")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the lock file in this instance's own data directory
 	if err != nil {
 		return nil, err
 	}
 
 	if err := lockFile(file); err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 

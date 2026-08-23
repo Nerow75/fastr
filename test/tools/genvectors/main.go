@@ -147,7 +147,8 @@ func main() {
 
 	data, err := json.MarshalIndent(out, "", "  ")
 	must(err)
-	must(os.WriteFile("test/testdata/crypto-vectors.json", append(data, '\n'), 0o644))
+	// A fixture that lives in the repository and is read by both test suites.
+	must(os.WriteFile("test/testdata/crypto-vectors.json", append(data, '\n'), 0o644)) //nolint:gosec // committed test fixture
 	fmt.Println("wrote test/testdata/crypto-vectors.json")
 }
 

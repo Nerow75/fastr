@@ -48,6 +48,9 @@ func (d *device) cutUpload(
 		t.Fatalf("parse server url: %v", err)
 	}
 
+	// Raw on purpose, and the whole point of the test: no HTTP client offers a
+	// way to say "these bytes were delivered and the rest never will be".
+	//nolint:forbidigo // deliberate: severing a connection is what is under test
 	conn, err := net.Dial("tcp", endpoint.Host)
 	if err != nil {
 		t.Fatalf("dial: %v", err)

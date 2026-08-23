@@ -108,7 +108,13 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	// Logged rather than ignored: bbolt flushes on close, so a failure here can
+	// mean state that was written but did not land.
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Error("close store", "error", err)
+		}
+	}()
 
 	bundle, err := assets.FS()
 	if err != nil {

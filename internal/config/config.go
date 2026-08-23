@@ -245,14 +245,16 @@ func (st *Store) Save(s Settings) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	// Best effort: the temporary file is only reachable from here, and a
+	// failure to remove it after a successful rename means nothing was renamed.
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -281,7 +283,9 @@ func (st *Store) Current() Settings {
 // Changing the receive folder leaves previously received files untouched: this
 // only creates the new destination, and never moves or deletes anything.
 func (s Settings) EnsureFolders() error {
-	if err := os.MkdirAll(s.ReceiveFolder, 0o755); err != nil {
+	// 0755, not 0700: this is the user's own folder, alongside Downloads, and a
+	// private receive folder would surprise every file manager they open it in.
+	if err := os.MkdirAll(s.ReceiveFolder, 0o755); err != nil { //nolint:gosec // the user's folder, deliberately theirs to see
 		return fmt.Errorf("create receive folder: %w", err)
 	}
 	// Staging holds other people's data in transit, including relayed content

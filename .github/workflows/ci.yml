@@ -113,9 +113,14 @@ jobs:
           go-version: "1.27"
           cache: true
 
+      # install-mode: goinstall builds the linter with the toolchain set up
+      # above. The default downloads a prebuilt binary, and a binary built with
+      # an older Go refuses a config that targets a newer one — which is why
+      # this job had never actually run a single check.
       - uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          install-mode: goinstall
 
       - uses: actions/setup-node@v4
         with:

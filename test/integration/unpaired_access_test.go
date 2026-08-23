@@ -147,8 +147,10 @@ func TestRevocationTakesEffectImmediately(t *testing.T) {
 	victim := h.pair()
 	admin := h.pair()
 
-	if resp := victim.do("GET", "/api/devices", nil); resp.StatusCode != http.StatusOK {
-		t.Fatalf("victim should start authorized, got %d", resp.StatusCode)
+	before := victim.do("GET", "/api/devices", nil)
+	before.Body.Close()
+	if before.StatusCode != http.StatusOK {
+		t.Fatalf("victim should start authorized, got %d", before.StatusCode)
 	}
 
 	resp := admin.do("DELETE", "/api/pairings/"+victim.ID, nil)

@@ -265,7 +265,10 @@ func (s *Session) writeJSON(w http.ResponseWriter, r *http.Request, status int, 
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(status)
-	_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(sealed))
+	// Base64 of a sealed payload, served as octet-stream with nosniff set by the
+	// security wrapper. There is no markup it could carry and no context that
+	// would interpret it as markup.
+	_, _ = io.WriteString(w, base64.StdEncoding.EncodeToString(sealed)) //nolint:gosec // base64 body, never rendered as HTML
 }
 
 // writeError renders a catalogue error.

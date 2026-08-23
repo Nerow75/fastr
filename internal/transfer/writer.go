@@ -46,7 +46,7 @@ func CreateStaged(stagingDir, finalPath, itemKey string) (*StagedFile, error) {
 	}
 
 	stagingPath := filepath.Join(stagingDir, itemKey+".part")
-	f, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path is the configured staging dir plus a ULID-derived key, never a peer's string
 	if err != nil {
 		return nil, fmt.Errorf("open staging file: %w", err)
 	}
@@ -73,7 +73,7 @@ func OpenStaged(stagingDir, finalPath, itemKey string) (*StagedFile, uint64, err
 		return nil, 0, fmt.Errorf("stat staging file: %w", err)
 	}
 
-	f, err := os.OpenFile(stagingPath, os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(stagingPath, os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // same constructed path as CreateStaged
 	if err != nil {
 		return nil, 0, fmt.Errorf("reopen staging file: %w", err)
 	}
@@ -139,7 +139,9 @@ func (s *StagedFile) Commit(computed, expected []byte) error {
 		return ErrChecksumMismatch
 	}
 
-	if err := os.MkdirAll(filepath.Dir(s.FinalPath), 0o755); err != nil {
+	// The user's own folder tree, and a folder send has to be openable in a file
+	// manager afterwards.
+	if err := os.MkdirAll(filepath.Dir(s.FinalPath), 0o755); err != nil { //nolint:gosec // the user's folder, deliberately theirs to see
 		return fmt.Errorf("create destination directory: %w", err)
 	}
 
@@ -155,7 +157,7 @@ func (s *StagedFile) Commit(computed, expected []byte) error {
 
 	// Received files are the user's, and should look like every other file
 	// they own rather than inheriting the staging directory's private mode.
-	if err := os.Chmod(s.FinalPath, 0o644); err != nil {
+	if err := os.Chmod(s.FinalPath, 0o644); err != nil { //nolint:gosec // received files are the user's; see the comment above
 		return fmt.Errorf("set permissions: %w", err)
 	}
 	return nil
@@ -187,11 +189,13 @@ func DiscardStaged(stagingDir, itemKey string) error {
 // crossDeviceMove copies then renames, for the case where staging and the
 // receive folder are on different filesystems.
 func crossDeviceMove(from, to string) error {
-	src, err := os.Open(from)
+	src, err := os.Open(from) //nolint:gosec // from is this package's own staging path
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	// Read-only: a failed close loses nothing, and the read error below is the
+	// one that would matter.
+	defer func() { _ = src.Close() }()
 
 	tmp, err := os.CreateTemp(filepath.Dir(to), ".fastr-*.tmp")
 	if err != nil {
@@ -200,12 +204,12 @@ func crossDeviceMove(from, to string) error {
 	tmpName := tmp.Name()
 
 	if err := streamFile(tmp, src); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return err
 	}

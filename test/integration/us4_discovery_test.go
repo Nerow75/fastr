@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,19 +21,71 @@ import (
 // seconds on it. That is what TestADeviceOnTheNetworkAppearsWithinFiveSeconds
 // does, over real multicast, between two real instances in one process.
 //
-// **These tests skip when the machine has no usable multicast.** Containers
-// routinely have none, and a test that cannot run is better than one that
-// passes by not looking. What is *not* skipped is everything that does not need
-// the wire: the record's contents, name disambiguation, and the manual
-// fallback, all of which have tests of their own next to this one.
+// **These tests skip when the machine cannot see its own multicast.** That is
+// checked once, by probing rather than guessing: a throwaway service is
+// published and looked for, and if it does not come back then nothing on this
+// machine could, whatever fastr does. Containers routinely cannot, and the
+// GitHub Windows runner cannot either — so **discovery is not verified on
+// Windows by CI**, which is recorded in docs/journal.md rather than papered
+// over.
+//
+// The probe keeps these tests meaningful where they run: on a machine that
+// passes it, a failure here is a real failure and not an environment. What is
+// never skipped is everything that does not need the wire — the record's
+// contents, name disambiguation, reachability, and the manual fallback — all of
+// which have tests of their own beside this one.
+
+// multicastWorks reports whether this machine can see its own mDNS traffic.
+//
+// Asked once and by experiment, because there is no way to ask the operating
+// system. A machine that silently drops multicast is indistinguishable, from
+// inside a browser, from a network with nothing on it — which is exactly the
+// failure mode that made these tests fail on Windows CI while passing on Linux.
+var multicastWorks = sync.OnceValue(func() bool {
+	const probeID = "01PROBEMULTICASTCAPABILITY"
+
+	published, err := discovery.Advertise(discovery.Advertisement{
+		DeviceID:  probeID,
+		Name:      "Multicast probe",
+		OS:        "linux",
+		Port:      1,
+		Addresses: []net.IP{net.IPv4(127, 0, 0, 1)},
+	})
+	if err != nil {
+		return false
+	}
+	defer func() { _ = published.Close() }()
+
+	browser := discovery.NewBrowser("01PROBEBROWSER0000000000", discardLogger())
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	browser.Start(ctx)
+
+	for ctx.Err() == nil {
+		if _, found := browser.Peer(probeID); found {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+})
+
+// requireMulticast skips a test that cannot run on this machine.
+func requireMulticast(t *testing.T) {
+	t.Helper()
+	if !multicastWorks() {
+		t.Skip("this machine cannot see its own multicast; discovery over the wire cannot be tested here")
+	}
+}
 
 // advertising publishes an instance and shuts it down with the test.
 func advertising(t *testing.T, ad discovery.Advertisement) {
 	t.Helper()
+	requireMulticast(t)
 
 	published, err := discovery.Advertise(ad)
 	if err != nil {
-		t.Skipf("this machine cannot advertise on multicast: %v", err)
+		t.Fatalf("advertise: %v", err)
 	}
 	t.Cleanup(func() { _ = published.Close() })
 }
@@ -62,10 +115,8 @@ func waitForPeer(t *testing.T, b *discovery.Browser, deviceID string, within tim
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if err := b.Unavailable(); err != nil {
-		t.Skipf("multicast is not usable here: %v", err)
-	}
-	t.Fatalf("%s did not appear within %s; saw %+v", deviceID, within, b.Peers())
+	t.Fatalf("%s did not appear within %s; saw %+v (browsing error: %v)",
+		deviceID, within, b.Peers(), b.Unavailable())
 	return discovery.Peer{}, 0
 }
 

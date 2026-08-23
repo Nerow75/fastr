@@ -67,7 +67,9 @@ func xdgUserDir(home, key string) string {
 	if cfg == "" {
 		cfg = filepath.Join(home, ".config")
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "user-dirs.dirs"))
+	// The XDG user-dirs file in this user's own configuration directory. The
+	// path is built from it, never from anything a peer supplied.
+	data, err := os.ReadFile(filepath.Join(cfg, "user-dirs.dirs")) //nolint:gosec // this user's own XDG configuration
 	if err != nil {
 		return ""
 	}
@@ -131,7 +133,9 @@ func (p linuxPlatform) SetAutostart(enabled bool, executable string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// The XDG autostart directory, which the desktop session reads. Its own
+	// convention is 0755 and tightening it here would only hide the entry.
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // XDG autostart, read by the session
 		return err
 	}
 	entry := "[Desktop Entry]\n" +
@@ -141,7 +145,9 @@ func (p linuxPlatform) SetAutostart(enabled bool, executable string) error {
 		"Exec=" + executable + " --background\n" +
 		"Terminal=false\n" +
 		"X-GNOME-Autostart-enabled=true\n"
-	return os.WriteFile(path, []byte(entry), 0o644)
+	// A .desktop entry holds no secret and must be readable by the session that
+	// launches it.
+	return os.WriteFile(path, []byte(entry), 0o644) //nolint:gosec // launcher entry, deliberately readable
 }
 
 func (p linuxPlatform) AutostartEnabled() (bool, error) {
