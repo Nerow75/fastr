@@ -54,7 +54,14 @@ func (d Deps) serveRelayed(s *Session, tr store.Transfer, index int, offset uint
 		d.writeError(w, r, app.Errorf(app.CodeInternal, err))
 		return
 	}
-	defer func() { _ = file.Close() }()
+	// Closed explicitly below, before the transfer is completed. The deferred
+	// close is only for the paths that leave early.
+	closed := false
+	defer func() {
+		if !closed {
+			_ = file.Close()
+		}
+	}()
 
 	if offset > 0 {
 		if _, err := file.Seek(int64(offset), io.SeekStart); err != nil { //nolint:gosec // bounded by the declared size
@@ -81,6 +88,16 @@ func (d Deps) serveRelayed(s *Session, tr store.Transfer, index int, offset uint
 	w.WriteHeader(status)
 
 	written, copyErr := io.Copy(w, file)
+
+	// Closed *before* completing, not after. Completing deletes the staged
+	// bytes, and Windows refuses to delete a file anything still holds open —
+	// so a relay running there would keep somebody else's file after the
+	// transfer finished, which is exactly what FR-055 forbids. On Linux the
+	// unlink succeeds and the difference is invisible, which is how this
+	// survived until CI ran it.
+	_ = file.Close()
+	closed = true
+
 	if copyErr != nil {
 		// The receiving phone went away mid-download. The bytes are still here
 		// and it can come back for them, which is what interrupted means.
