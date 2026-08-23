@@ -7,11 +7,23 @@
 
 > ### Project status
 >
-> **Pre-alpha. There is no working build yet and nothing to download.**
+> **Pre-alpha. There is no tagged release yet and nothing to download.**
 >
-> The project is in its specification phase: the [constitution](.specify/memory/constitution.md)
-> is ratified, the feature specification and the technology stack are being written.
-> Watch the repository or open an issue if you want to follow along or help shape it.
+> The six user stories work end to end and are covered by tests on Linux and Windows,
+> and a real phone has moved files in both directions. What stands between that and a
+> first release is named rather than implied:
+>
+> - **The pairing code has not been hardened.** Six digits carry about twenty bits, so
+>   somebody who captures a whole handshake can search that space offline. The online
+>   defences do not apply to an offline attempt. This is
+>   [T137](specs/001-lan-file-transfer/tasks.md) and it blocks a release.
+> - **The trusted-mode setup has not been walked through on real hardware**, only
+>   against the platforms' documentation.
+> - **No signed builds yet.**
+>
+> Build it yourself with `make build` if you want to try it. See
+> [docs/using-fastr.md](docs/using-fastr.md) for what it does, and for what simple
+> mode does and does not protect.
 
 ---
 
@@ -72,10 +84,15 @@ These are non-negotiable and enforced by the [project constitution](.specify/mem
 - [x] Project constitution ratified
 - [x] Feature specification
 - [x] Technology stack and implementation plan
-- [ ] Device discovery and pairing
-- [ ] Desktop to phone transfer
-- [ ] Phone to desktop transfer
-- [ ] Resume after interruption, integrity verification
+- [x] Device discovery and pairing
+- [x] Desktop to phone transfer
+- [x] Phone to desktop transfer
+- [x] Resume after interruption, integrity verification
+- [x] Queue, history, device management
+- [x] Phone to phone through a relay
+- [x] Trusted mode, apart from streamed decryption on the phone
+- [ ] Pairing hardening, which blocks a release
+- [ ] Setup verified on physical Android and iOS hardware
 - [ ] Signed builds for Linux and Windows
 
 ## A word on encryption, up front
@@ -124,6 +141,7 @@ code, and they live in the repository alongside it.
 `specs/001-lan-file-transfer/tasks.md` is the source of truth for what is done;
 [docs/journal.md](docs/journal.md) carries the reasoning behind the decisions, the defects found
 along the way, and what is deliberately still open.
+[docs/using-fastr.md](docs/using-fastr.md) is the user-facing guide.
 
 ## License
 
