@@ -171,7 +171,7 @@
   "error.awaiting_relay": "The other phone is still sending this file to the computer. It will be ready in a moment.",
   "error.relay_unavailable": "The computer relaying this transfer is no longer available. The transfer will resume when it is back.",
   "error.device_unreachable": "Nothing answered at that address. Check the address shown on the other computer, and that fastr is running there.",
-  "error.invalid_path": "The request named a location that is not allowed and was refused.",
+  "error.invalid_path": "A file could not be saved under the name it was sent with. Rename it on the sending device, then send it again.",
   "error.invalid_request": "The request was malformed and was refused. Reload the page and try again.",
   "error.not_found": "Not found.",
   "error.internal": "Something went wrong on the computer running fastr. Check its window for details.",

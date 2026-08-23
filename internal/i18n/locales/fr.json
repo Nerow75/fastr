@@ -171,7 +171,7 @@
   "error.awaiting_relay": "L’autre téléphone est encore en train d’envoyer ce fichier à l’ordinateur. Il sera prêt dans un instant.",
   "error.relay_unavailable": "L'ordinateur qui relaie ce transfert n'est plus disponible. Le transfert reprendra à son retour.",
   "error.device_unreachable": "Rien n’a répondu à cette adresse. Vérifiez l’adresse affichée sur l’autre ordinateur, et que fastr y est bien lancé.",
-  "error.invalid_path": "La requête désignait un emplacement non autorisé et a été refusée.",
+  "error.invalid_path": "Un fichier n’a pas pu être enregistré sous le nom avec lequel il a été envoyé. Renommez-le sur l’appareil émetteur, puis renvoyez-le.",
   "error.invalid_request": "La requête était mal formée et a été refusée. Rechargez la page et réessayez.",
   "error.not_found": "Introuvable.",
   "error.internal": "Quelque chose s'est mal passé sur l'ordinateur qui fait tourner fastr. Regardez sa fenêtre pour en savoir plus.",
