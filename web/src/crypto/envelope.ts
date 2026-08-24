@@ -15,7 +15,13 @@
 
 import { chacha20poly1305 } from '@noble/ciphers/chacha';
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * Bound into the associated data of every envelope, so traffic from one version
+ * cannot be replayed against another. It must match
+ * internal/pairing/handshake.go's ProtocolVersion, and the committed vectors
+ * fail loudly when it does not.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** Which counter space a message belongs to. Separating the directions is what
  *  stops a server message being reflected back at the server. */

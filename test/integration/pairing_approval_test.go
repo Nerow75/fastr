@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
@@ -25,28 +26,31 @@ func (h *harness) startPairing(t *testing.T) (pendingID string, key []byte) {
 		t.Fatalf("issue code: %v", err)
 	}
 
-	clientPriv, clientPub, err := pairing.GenerateClientKeypair()
+	sid, err := pairing.NewSessionID(rand.Reader)
 	if err != nil {
-		t.Fatalf("keypair: %v", err)
+		t.Fatalf("session id: %v", err)
+	}
+	secret, clientMessage, err := pairing.ClientBegin(code.Display(), h.selfID, sid)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
 	}
 
 	var init struct {
-		HandshakeID     string `json:"handshake_id"`
-		ServerPublicKey string `json:"server_pub"`
-		Salt            string `json:"salt"`
+		HandshakeID string `json:"handshake_id"`
+		Message     string `json:"message"`
 	}
 	h.postPlain("/api/pair/init", map[string]any{
-		"client_pub":  base64.StdEncoding.EncodeToString(clientPub),
+		"sid":         base64.StdEncoding.EncodeToString(sid),
+		"message":     base64.StdEncoding.EncodeToString(clientMessage),
 		"device_name": "Visitor Phone",
 		"platform":    "ios",
 	}, &init)
 
-	serverPub, _ := base64.StdEncoding.DecodeString(init.ServerPublicKey)
-	salt, _ := base64.StdEncoding.DecodeString(init.Salt)
+	serverMessage, _ := base64.StdEncoding.DecodeString(init.Message)
 
-	derived, proof, err := pairing.ClientDerive(clientPriv, serverPub, clientPub, salt, code.Display(), init.HandshakeID)
+	derived, proof, err := pairing.ClientComplete(secret, sid, clientMessage, serverMessage, init.HandshakeID)
 	if err != nil {
-		t.Fatalf("derive: %v", err)
+		t.Fatalf("complete: %v", err)
 	}
 
 	var confirm struct {
@@ -55,7 +59,6 @@ func (h *harness) startPairing(t *testing.T) (pendingID string, key []byte) {
 	}
 	h.postAccepted("/api/pair/confirm", map[string]any{
 		"handshake_id": init.HandshakeID,
-		"code":         code.Display(),
 		"proof":        base64.StdEncoding.EncodeToString(proof),
 		"device_name":  "Visitor Phone",
 		"platform":     "ios",

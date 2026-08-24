@@ -72,6 +72,12 @@ address to open, a QR code for it, and a six-digit code.
 The code lasts three minutes, works once, and dies after five wrong attempts. A
 new one appears on its own.
 
+**The code is never sent over the network.** Your phone and your computer each
+use it to compute a shared secret, and neither transmits it. That matters
+because in simple mode this conversation is readable by anyone on the same
+Wi-Fi: there is nothing there for them to read, and guessing costs one attempt
+out of five rather than a search they could run on their own machine.
+
 A pairing lasts a year of use for a device set to accept automatically, or
 thirty days for one set to ask every time. You can remove any device at any
 moment, and removal takes effect immediately — including for a transfer already

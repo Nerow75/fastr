@@ -38,7 +38,6 @@ var (
 	ErrCodeExpired  = errors.New("pairing code expired")
 	ErrCodeConsumed = errors.New("pairing code already used")
 	ErrCodeDead     = errors.New("pairing code cancelled after too many attempts")
-	ErrWrongCode    = errors.New("wrong pairing code")
 	ErrRateLimited  = errors.New("too many attempts, wait before retrying")
 )
 
@@ -169,55 +168,80 @@ func (cs *Codes) Ensure() (*Code, error) {
 	return cs.Issue()
 }
 
-// Verify checks a submitted code and consumes it on success.
+// Live returns the digits of the code a pairing attempt should be run against.
 //
-// The comparison is not constant time, and does not need to be: a wrong code
-// is counted and rate limited, and the code dies after five attempts, so
-// timing carries no useful signal about a value that survives at most five
-// guesses. What matters here is the attempt budget, not the comparison.
-func (cs *Codes) Verify(submitted string) error {
+// The host needs the code itself now, rather than a value to compare against
+// one: under CPace the code is an input to a key derivation on each side, and
+// nothing is ever submitted to compare. So this is where a guess is admitted
+// and where the growing delay is enforced, because starting an exchange is the
+// moment an attacker commits to one candidate.
+//
+// It does not count an attempt. Whether the guess was right is not known until
+// the confirmation arrives, and Settle is where that lands. A caller who starts
+// an exchange and never finishes it learns nothing: the host's message is a
+// uniformly distributed group element whichever code produced it.
+func (cs *Codes) Live() (string, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	c := cs.current
 	if c == nil {
-		return ErrNoCode
+		return "", ErrNoCode
 	}
 
 	now := cs.now()
 	switch {
 	case c.consumed:
-		return ErrCodeConsumed
+		return "", ErrCodeConsumed
 	case c.attempts >= MaxAttempts:
-		return ErrCodeDead
+		return "", ErrCodeDead
 	case c.Expired(now):
-		return ErrCodeExpired
+		return "", ErrCodeExpired
 	}
 
-	// Enforce the growing delay before spending an attempt, so a caller
+	// Enforce the growing delay before admitting another guess, so a caller
 	// hammering the endpoint does not burn the budget faster than a person.
 	if c.attempts > 0 {
 		wait := backoff[c.attempts]
 		if elapsed := now.Sub(c.lastFailed); elapsed < wait {
-			return fmt.Errorf("%w: %s remaining", ErrRateLimited, (wait - elapsed).Round(time.Second))
+			return "", fmt.Errorf("%w: %s remaining", ErrRateLimited, (wait - elapsed).Round(time.Second))
 		}
 	}
 
-	if submitted != c.digits {
+	return c.digits, nil
+}
+
+// Settle records how a pairing attempt turned out.
+//
+// The code is named rather than assumed, because an exchange may finish against
+// a code that is no longer the live one: three minutes is long enough for the
+// host to have moved on, and counting that failure against a code the attacker
+// never touched would spend somebody else's budget. A settlement for a code
+// that is no longer current is dropped, which is the honest outcome — there is
+// nothing left to account for.
+func (cs *Codes) Settle(code string, ok bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	c := cs.current
+	if c == nil || c.digits != code {
+		return
+	}
+
+	if !ok {
 		c.attempts++
-		c.lastFailed = now
+		c.lastFailed = cs.now()
 		if c.attempts >= MaxAttempts && cs.onRetire != nil {
 			// Dead codes stop being sensitive.
 			cs.onRetire(c.digits)
 		}
-		return ErrWrongCode
+		return
 	}
 
 	c.consumed = true
 	if cs.onRetire != nil {
 		cs.onRetire(c.digits)
 	}
-	return nil
 }
 
 // Clear retires the current code, for instance when the user stops the server.

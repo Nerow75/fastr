@@ -14,60 +14,87 @@ content travels in the clear.
 
 ## Handshake
 
+The key agreement is **CPace**, in the CPACE-RISTRETTO255-SHA512 suite of
+[draft-irtf-cfrg-cpace-14](https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/).
+
 ```text
 Host                                              Phone
   │                                                 │
   │  displays 6-digit code C and a QR code          │
-  │◄──────────── GET /connect ───────────────────── │
+  │◄──────────── GET /connect ───────────────────── │  learns the host identifier H
   │                                                 │
-  │◄──────────── POST /api/pair/init ────────────── │  { client_pub: X25519 public key }
-  │  ───────────────────────────────────────────►   │  { server_pub, handshake_id, salt }
+  │                       phone picks sid, computes │
+  │                       G  = map(C, H, sid)       │
+  │                       Ya = ya·G                 │
+  │◄──────────── POST /api/pair/init ────────────── │  { sid, message: Ya }
   │                                                 │
-  │            both compute:                        │
-  │            shared = X25519(own_priv, peer_pub)  │
-  │            key    = HKDF(shared, salt, C, transcript)
+  │  G  = map(C, H, sid)                            │
+  │  Yb = yb·G                                      │
+  │  K  = yb·Ya                                     │
+  │  ───────────────────────────────────────────►   │  { handshake_id, message: Yb }
   │                                                 │
-  │◄──────────── POST /api/pair/confirm ─────────── │  AEAD(key, handshake_id || proof)
+  │                                   K = ya·Yb     │
+  │                                                 │
+  │◄──────────── POST /api/pair/confirm ─────────── │  { handshake_id, proof }
   │                                                 │
   │  human approves on the host  (FR-010)           │
   │  ───────────────────────────────────────────►   │  AEAD(key, session credential)
 ```
 
-**What the observer sees**: two public keys, a salt, a handshake identifier, and ciphertext. The
-shared secret is not derivable from the public keys, and the session credential never appears in
-the clear. Mixing the code `C` into the derivation means an observer who did not see the code
-cannot produce a valid `confirm`.
+**The code is never transmitted.** It is an input to a derivation on each side and appears in no
+request, in no response, and in no log. `test/integration/pairing_secrecy_test.go` and
+`web/tests/e2e/pairing_secrecy.spec.ts` assert this against recorded traffic, the second against
+the client that actually ships.
+
+**What the observer sees**: a session identifier, two group elements, a handshake identifier, and
+a confirmation tag. Every one of them is independent of the code: the two elements are uniformly
+distributed whichever six digits produced them, so no candidate can be tested against any of it.
+
+**What an attacker who answers gets**: one guess. Whoever plays the host's part has to choose a
+candidate code before computing their message, and relating their generator to the honest one
+needs a discrete logarithm. So an impersonation attempt tests exactly one of the million codes and
+spends one of the five attempts, which is what makes twenty bits an acceptable amount to ask a
+person to retype.
 
 ## Derivation
 
 ```text
-shared     = X25519(ephemeral private, peer ephemeral public)
-transcript = client_pub || server_pub || handshake_id
-key        = HKDF-SHA256(ikm = shared, salt = salt, info = "fastr-pair-v1" || transcript || C)
+G   = ristretto255_map( SHA-512( generator_string("CPaceRistretto255", C, H, sid) ) )
+Ya  = ya·G                  ya, yb sampled uniformly, discarded after the exchange
+Yb  = yb·G
+K   = ya·Yb = yb·Ya         refused if it decodes badly or is the identity element
+
+ISK = SHA-512( lv_cat("CPaceRistretto255_ISK", sid, K)
+               || lv_cat(Ya, "") || lv_cat(Yb, handshake_id) )
+
+session key  = ISK[0:32]
+proof        = HMAC-SHA256(ISK[32:64], "fastr-pair-confirm-v2")
 ```
 
-Ephemeral keys are generated per handshake and discarded after it. The session key is stored on
-the host in the Pairing record and in the browser's site data on the phone.
+`H` is the host's device identifier, so an exchange run against one computer cannot be replayed at
+another showing the same digits. `handshake_id` is the host's associated data, so it is bound into
+the key rather than only into the tag. The proof comes from the half of the ISK that is not the
+session key, so a tag that necessarily travels in the clear says nothing about the key that must
+stay secret.
+
+Both implementations are checked against the draft's published test vector, appendix B.3:
+`internal/pairing/cpace_test.go` and `web/scripts/verify-crypto.ts`. They are also checked against
+each other, from fixed inputs, in `test/testdata/crypto-vectors.json`.
 
 ## Code
 
 - 6 decimal digits, from a cryptographic source, displayed on the host only.
 - Single use (FR-012).
 - Expires 3 minutes after display.
-- Dies after 5 failed `confirm` attempts (FR-013).
-- Attempts are rate limited per source address, with a delay that grows after each failure.
-- Never logged, never echoed in a response, never shown again once used (FR-019).
+- Dies after 5 failed attempts (FR-013).
+- Attempts are admitted at `init`, where the growing delay is enforced, and judged at `confirm`.
+  Starting an exchange and abandoning it counts for nothing and resets nothing.
+- Never sent, never logged, never echoed in a response, never shown again once used (FR-019).
 
-## Known limitation, flagged
+## Protocol version
 
-A 6-digit code carries about 20 bits. An observer who captures the full handshake can attempt an
-offline search over the code space against the `confirm` ciphertext. The online defences above do
-not apply to an offline attempt.
-
-A password-authenticated key exchange such as SPAKE2 removes this by construction, because no
-value in the transcript can be tested against a candidate code offline. It is recorded in
-[research.md](../research.md#4-cryptography-available-without-a-secure-context) as a hardening step
-to settle **before the first release**, not after.
+`2`. Version 1 sent the code in the clear and left an offline oracle in the transcript; it is not
+accepted, and a device holding a version 1 credential pairs again.
 
 ## Session credential
 

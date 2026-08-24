@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -11,28 +12,48 @@ import (
 // mode, where the wire is plain HTTP on a shared network. Everything below
 // assumes an observer reads every byte and can replay anything they saw.
 
-func TestHandshakeRoundTripDerivesTheSameKey(t *testing.T) {
-	hs := NewHandshakes()
-	const code = "482915"
+// exchange runs the joining device's whole side against a live registry, and
+// returns what it would send.
+//
+// The client's half in one place rather than spelled out in every test: what
+// each test below actually varies is one input, and burying that in six lines
+// of ceremony is how a test ends up asserting something other than its name.
+func exchange(t *testing.T, hs *Handshakes, code, hostID string) (h *Handshake, proof []byte, key []byte) {
+	t.Helper()
 
-	clientPriv, clientPub, err := GenerateClientKeypair()
+	sid, err := NewSessionID(rand.Reader)
 	if err != nil {
-		t.Fatalf("keypair: %v", err)
+		t.Fatalf("session id: %v", err)
+	}
+	secret, clientMessage, err := ClientBegin(code, hostID, sid)
+	if err != nil {
+		t.Fatalf("ClientBegin: %v", err)
 	}
 
-	h, err := hs.Begin(clientPub)
+	h, serverMessage, err := hs.Begin(hostID, code, sid, clientMessage)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
-	clientKey, proof, err := ClientDerive(clientPriv, h.ServerPublicKey(), clientPub, h.Salt, code, h.ID)
+	key, proof, err = ClientComplete(secret, sid, clientMessage, serverMessage, h.ID)
 	if err != nil {
-		t.Fatalf("ClientDerive: %v", err)
+		t.Fatalf("ClientComplete: %v", err)
 	}
+	return h, proof, key
+}
 
-	serverKey, err := hs.Complete(h.ID, code, proof)
+func TestHandshakeRoundTripDerivesTheSameKey(t *testing.T) {
+	hs := NewHandshakes()
+	const code = "482915"
+
+	h, proof, clientKey := exchange(t, hs, code, "host-1")
+
+	serverKey, settled, err := hs.Complete(h.ID, proof)
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
+	}
+	if settled != code {
+		t.Errorf("Complete reported code %q, want %q", settled, code)
 	}
 
 	if !bytes.Equal(clientKey, serverKey) {
@@ -47,50 +68,96 @@ func TestHandshakeRoundTripDerivesTheSameKey(t *testing.T) {
 	}
 }
 
-// This is the property the whole design rests on: an observer who captured the
-// public keys, the salt, and the handshake identifier still cannot produce a
-// valid confirmation without the code.
+// This is the property the whole design rests on. An observer reads everything
+// on the wire and still cannot confirm, because everything on the wire is
+// independent of the code: the two group elements are uniformly distributed
+// whichever six digits produced them.
 func TestWrongCodeCannotConfirm(t *testing.T) {
 	hs := NewHandshakes()
 
-	clientPriv, clientPub, _ := GenerateClientKeypair()
-	h, err := hs.Begin(clientPub)
+	sid, err := NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The host holds one code; whoever is joining guesses another.
+	secret, clientMessage, err := ClientBegin("000000", "host-1", sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, serverMessage, err := hs.Begin("host-1", "482915", sid, clientMessage)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
-	// The observer knows everything on the wire, and guesses the code.
-	_, proof, err := ClientDerive(clientPriv, h.ServerPublicKey(), clientPub, h.Salt, "000000", h.ID)
+	_, proof, err := ClientComplete(secret, sid, clientMessage, serverMessage, h.ID)
 	if err != nil {
-		t.Fatalf("ClientDerive: %v", err)
+		t.Fatal(err)
 	}
 
-	if _, err := hs.Complete(h.ID, "482915", proof); !errors.Is(err, ErrBadProof) {
+	_, settled, err := hs.Complete(h.ID, proof)
+	if !errors.Is(err, ErrBadProof) {
 		t.Errorf("Complete with a guessed code = %v, want ErrBadProof", err)
+	}
+	// The code comes back even on failure, so the caller can spend one of the
+	// five attempts on the guess. Without it a wrong guess would be free.
+	if settled != "482915" {
+		t.Errorf("failed Complete reported code %q, want the one the exchange began with", settled)
 	}
 }
 
-// A handshake is consumed whether or not the proof verifies, so a wrong guess
-// does not get a second try on the same ephemeral keys.
+// The same digits shown by two different computers must not produce the same
+// exchange, so a proof cannot be carried from one to the other.
+func TestAProofDoesNotTransferBetweenHosts(t *testing.T) {
+	const code = "482915"
+
+	sid, err := NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, clientMessage, err := ClientBegin(code, "host-1", sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The proof is produced for host-1 and presented to host-2.
+	elsewhere := NewHandshakes()
+	h, serverMessage, err := elsewhere.Begin("host-2", code, sid, clientMessage)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	_, proof, err := ClientComplete(secret, sid, clientMessage, serverMessage, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := elsewhere.Complete(h.ID, proof); !errors.Is(err, ErrBadProof) {
+		t.Errorf("a proof made for one host verified at another: %v", err)
+	}
+}
+
+// A handshake is consumed whether or not the proof verifies, so one interaction
+// is worth exactly one guess. This is what makes the five-attempt budget the
+// real bound on a twenty-bit code.
 func TestHandshakeIsSingleUse(t *testing.T) {
 	hs := NewHandshakes()
 	const code = "482915"
 
-	clientPriv, clientPub, _ := GenerateClientKeypair()
-	h, _ := hs.Begin(clientPub)
-	_, proof, _ := ClientDerive(clientPriv, h.ServerPublicKey(), clientPub, h.Salt, code, h.ID)
+	h, proof, _ := exchange(t, hs, code, "host-1")
 
-	if _, err := hs.Complete(h.ID, code, proof); err != nil {
+	if _, _, err := hs.Complete(h.ID, proof); err != nil {
 		t.Fatalf("first Complete: %v", err)
 	}
-	if _, err := hs.Complete(h.ID, code, proof); !errors.Is(err, ErrUnknownHandshake) {
+	if _, _, err := hs.Complete(h.ID, proof); !errors.Is(err, ErrUnknownHandshake) {
 		t.Errorf("replayed Complete = %v, want ErrUnknownHandshake", err)
 	}
 
 	// And a failed attempt burns it too.
-	h2, _ := hs.Begin(clientPub)
-	_, _ = hs.Complete(h2.ID, code, []byte("wrong"))
-	if _, err := hs.Complete(h2.ID, code, proof); !errors.Is(err, ErrUnknownHandshake) {
+	h2, proof2, _ := exchange(t, hs, code, "host-1")
+	if _, _, err := hs.Complete(h2.ID, []byte("wrong")); !errors.Is(err, ErrBadProof) {
+		t.Fatalf("a wrong proof = %v, want ErrBadProof", err)
+	}
+	if _, _, err := hs.Complete(h2.ID, proof2); !errors.Is(err, ErrUnknownHandshake) {
 		t.Errorf("retry after a bad proof = %v, want ErrUnknownHandshake", err)
 	}
 }
@@ -100,47 +167,63 @@ func TestHandshakeExpires(t *testing.T) {
 	base := time.Now()
 	hs.SetClock(func() time.Time { return base })
 
-	clientPriv, clientPub, _ := GenerateClientKeypair()
-	h, _ := hs.Begin(clientPub)
-	_, proof, _ := ClientDerive(clientPriv, h.ServerPublicKey(), clientPub, h.Salt, "482915", h.ID)
+	h, proof, _ := exchange(t, hs, "482915", "host-1")
 
 	hs.SetClock(func() time.Time { return base.Add(handshakeTTL + time.Second) })
-	if _, err := hs.Complete(h.ID, "482915", proof); !errors.Is(err, ErrHandshakeExpired) {
+	if _, _, err := hs.Complete(h.ID, proof); !errors.Is(err, ErrHandshakeExpired) {
 		t.Errorf("Complete after the deadline = %v, want ErrHandshakeExpired", err)
 	}
 }
 
-// Abandoned handshakes must not accumulate in memory.
+// Abandoned handshakes must not accumulate in memory. Starting one and walking
+// away is free for whoever does it, and it is the cheapest thing an attacker
+// can do repeatedly.
 func TestAbandonedHandshakesAreSwept(t *testing.T) {
 	hs := NewHandshakes()
 	base := time.Now()
 	hs.SetClock(func() time.Time { return base })
 
-	_, clientPub, _ := GenerateClientKeypair()
 	for i := 0; i < 5; i++ {
-		if _, err := hs.Begin(clientPub); err != nil {
-			t.Fatalf("Begin: %v", err)
-		}
+		exchange(t, hs, "482915", "host-1")
 	}
 	if got := hs.Open(); got != 5 {
 		t.Fatalf("open = %d, want 5", got)
 	}
 
 	hs.SetClock(func() time.Time { return base.Add(handshakeTTL + time.Second) })
-	if _, err := hs.Begin(clientPub); err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
+	exchange(t, hs, "482915", "host-1")
 	if got := hs.Open(); got != 1 {
 		t.Errorf("open after sweep = %d, want 1", got)
 	}
 }
 
-func TestHandshakeRejectsMalformedPublicKey(t *testing.T) {
+func TestHandshakeRejectsMalformedInputs(t *testing.T) {
 	hs := NewHandshakes()
-	for _, bad := range [][]byte{nil, {}, make([]byte, 31), make([]byte, 33)} {
-		if _, err := hs.Begin(bad); !errors.Is(err, ErrBadPublicKey) {
-			t.Errorf("Begin(%d bytes) = %v, want ErrBadPublicKey", len(bad), err)
+
+	sid, err := NewSessionID(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, clientMessage, err := ClientBegin("482915", "host-1", sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, bad := range [][]byte{nil, {}, make([]byte, SessionIDSize-1), make([]byte, SessionIDSize+1)} {
+		if _, _, err := hs.Begin("host-1", "482915", bad, clientMessage); !errors.Is(err, ErrBadSessionID) {
+			t.Errorf("Begin with a %d-byte session id = %v, want ErrBadSessionID", len(bad), err)
 		}
+	}
+
+	for _, bad := range [][]byte{nil, {}, make([]byte, ElementSize-1), bytes.Repeat([]byte{0xff}, ElementSize)} {
+		if _, _, err := hs.Begin("host-1", "482915", sid, bad); !errors.Is(err, ErrBadElement) {
+			t.Errorf("Begin with a %d-byte element = %v, want ErrBadElement", len(bad), err)
+		}
+	}
+
+	// Nothing malformed may have been recorded on the way through.
+	if got := hs.Open(); got != 0 {
+		t.Errorf("%d handshakes were left open by refused requests", got)
 	}
 }
 
@@ -306,6 +389,13 @@ func TestEnvelopeRejectsWrongKeySize(t *testing.T) {
 
 // --- pairing codes -----------------------------------------------------------
 
+// The accounting split in two.
+//
+// Live admits a guess and enforces the growing delay; Settle records how it
+// turned out. They are two calls rather than one because under CPace the host
+// does not learn whether the digits were right until a round trip later: it
+// hands the code to a derivation, and the answer arrives with the confirmation.
+
 func TestCodeIsSingleUse(t *testing.T) {
 	cs := NewCodes()
 	c, err := cs.Issue()
@@ -316,11 +406,17 @@ func TestCodeIsSingleUse(t *testing.T) {
 		t.Fatalf("code is %q, want %d digits", c.Display(), CodeDigits)
 	}
 
-	if err := cs.Verify(c.Display()); err != nil {
-		t.Fatalf("Verify: %v", err)
+	live, err := cs.Live()
+	if err != nil {
+		t.Fatalf("Live: %v", err)
 	}
-	if err := cs.Verify(c.Display()); !errors.Is(err, ErrCodeConsumed) {
-		t.Errorf("second Verify = %v, want ErrCodeConsumed", err)
+	if live != c.Display() {
+		t.Fatal("Live returned digits other than the displayed ones")
+	}
+	cs.Settle(live, true)
+
+	if _, err := cs.Live(); !errors.Is(err, ErrCodeConsumed) {
+		t.Errorf("second Live = %v, want ErrCodeConsumed", err)
 	}
 }
 
@@ -329,26 +425,30 @@ func TestCodeExpires(t *testing.T) {
 	base := time.Now()
 	cs.SetClock(func() time.Time { return base })
 
-	c, _ := cs.Issue()
+	if _, err := cs.Issue(); err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
 	cs.SetClock(func() time.Time { return base.Add(CodeTTL + time.Second) })
 
-	if err := cs.Verify(c.Display()); !errors.Is(err, ErrCodeExpired) {
-		t.Errorf("Verify after expiry = %v, want ErrCodeExpired", err)
+	if _, err := cs.Live(); !errors.Is(err, ErrCodeExpired) {
+		t.Errorf("Live after expiry = %v, want ErrCodeExpired", err)
 	}
 }
 
 // FR-013: a code dies after five failures, and the delay between attempts
 // grows so an online guessing run costs real time.
+//
+// This is the whole defence now. With no offline oracle left, five guesses out
+// of a million is the attacker's entire budget, and this is the test that says
+// so.
 func TestCodeDiesAfterFiveFailures(t *testing.T) {
 	cs := NewCodes()
 	base := time.Now()
 	now := base
 	cs.SetClock(func() time.Time { return now })
 
-	c, _ := cs.Issue()
-	wrong := "000000"
-	if c.Display() == wrong {
-		wrong = "111111"
+	if _, err := cs.Issue(); err != nil {
+		t.Fatalf("Issue: %v", err)
 	}
 
 	// Wait just past the longest backoff each time, and no more: five waits of
@@ -356,17 +456,19 @@ func TestCodeDiesAfterFiveFailures(t *testing.T) {
 	// expire before it could die of failed attempts.
 	for i := 0; i < MaxAttempts; i++ {
 		now = now.Add(31 * time.Second)
-		if err := cs.Verify(wrong); !errors.Is(err, ErrWrongCode) {
-			t.Fatalf("attempt %d = %v, want ErrWrongCode", i+1, err)
+		live, err := cs.Live()
+		if err != nil {
+			t.Fatalf("attempt %d: %v", i+1, err)
 		}
+		cs.Settle(live, false)
 	}
 
-	// Even the correct code must now be refused, and before the code would
-	// have expired on its own.
+	// Even a correct guess must now be refused, and before the code would have
+	// expired on its own.
 	if base.Add(CodeTTL).Before(now) {
 		t.Fatalf("the test outran the code lifetime, so this proves nothing")
 	}
-	if err := cs.Verify(c.Display()); !errors.Is(err, ErrCodeDead) {
+	if _, err := cs.Live(); !errors.Is(err, ErrCodeDead) {
 		t.Errorf("after %d failures = %v, want ErrCodeDead", MaxAttempts, err)
 	}
 }
@@ -377,23 +479,52 @@ func TestCodeRateLimitsRepeatedAttempts(t *testing.T) {
 	now := base
 	cs.SetClock(func() time.Time { return now })
 
-	c, _ := cs.Issue()
-	wrong := "000000"
-	if c.Display() == wrong {
-		wrong = "111111"
+	if _, err := cs.Issue(); err != nil {
+		t.Fatalf("Issue: %v", err)
 	}
 
-	if err := cs.Verify(wrong); !errors.Is(err, ErrWrongCode) {
-		t.Fatalf("first attempt = %v", err)
+	live, err := cs.Live()
+	if err != nil {
+		t.Fatalf("first attempt: %v", err)
 	}
-	// Immediately again: the backoff must bite before an attempt is spent.
-	if err := cs.Verify(wrong); !errors.Is(err, ErrRateLimited) {
+	cs.Settle(live, false)
+
+	// Immediately again: the delay must bite before another guess is admitted.
+	if _, err := cs.Live(); !errors.Is(err, ErrRateLimited) {
 		t.Errorf("immediate retry = %v, want ErrRateLimited", err)
 	}
-	// After the delay, an attempt is allowed again.
+	// After the delay, a guess is allowed again.
 	now = now.Add(2 * time.Second)
-	if err := cs.Verify(wrong); !errors.Is(err, ErrWrongCode) {
-		t.Errorf("retry after backoff = %v, want ErrWrongCode", err)
+	if _, err := cs.Live(); err != nil {
+		t.Errorf("retry after backoff = %v", err)
+	}
+}
+
+// A guess never settled must not buy an escape from the delay. Starting an
+// exchange and abandoning it is free for whoever does it, and if it left the
+// attempt uncounted while resetting nothing, the budget would still hold — but
+// if it also cleared the delay, five guesses would become unlimited ones.
+func TestAnAbandonedAttemptDoesNotResetTheDelay(t *testing.T) {
+	cs := NewCodes()
+	now := time.Now()
+	cs.SetClock(func() time.Time { return now })
+
+	if _, err := cs.Issue(); err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+
+	live, err := cs.Live()
+	if err != nil {
+		t.Fatalf("first attempt: %v", err)
+	}
+	cs.Settle(live, false)
+
+	// Start another and walk away, then try again immediately.
+	if _, err := cs.Live(); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("second attempt = %v, want ErrRateLimited", err)
+	}
+	if _, err := cs.Live(); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("third attempt = %v, want ErrRateLimited", err)
 	}
 }
 
@@ -416,9 +547,12 @@ func TestCodeRegistersAndRetiresWithTheScrubber(t *testing.T) {
 		t.Fatalf("retire hook fired early: %v", retired)
 	}
 
-	if err := cs.Verify(c.Display()); err != nil {
-		t.Fatalf("Verify: %v", err)
+	live, err := cs.Live()
+	if err != nil {
+		t.Fatalf("Live: %v", err)
 	}
+	cs.Settle(live, true)
+
 	if len(retired) != 1 || retired[0] != c.Display() {
 		t.Errorf("consumed code was not retired: %v", retired)
 	}
@@ -437,24 +571,29 @@ func TestIssuingReplacesTheCurrentCode(t *testing.T) {
 	if first.Display() == second.Display() {
 		t.Fatal("two consecutive codes were identical")
 	}
-	if err := cs.Verify(first.Display()); !errors.Is(err, ErrWrongCode) {
-		t.Errorf("old code = %v, want ErrWrongCode", err)
-	}
 
-	// Typing the stale code spent an attempt against the live one, which is
-	// correct: a wrong code is a wrong code whatever the user was reading. So
-	// the backoff applies before the right code can be tried.
-	now = now.Add(2 * time.Second)
-	if err := cs.Verify(second.Display()); err != nil {
-		t.Errorf("new code: %v", err)
+	// An exchange that began against the code now retired settles against
+	// nothing: three minutes is long enough for the host to have moved on, and
+	// counting that failure would spend a budget the attempt never touched.
+	cs.Settle(first.Display(), false)
+
+	live, err := cs.Live()
+	if err != nil {
+		t.Fatalf("Live after a stale settlement = %v", err)
+	}
+	if live != second.Display() {
+		t.Error("Live did not return the code now on screen")
 	}
 }
 
-func TestVerifyWithNoActiveCode(t *testing.T) {
+func TestLiveWithNoActiveCode(t *testing.T) {
 	cs := NewCodes()
-	if err := cs.Verify("123456"); !errors.Is(err, ErrNoCode) {
-		t.Errorf("Verify with no code = %v, want ErrNoCode", err)
+	if _, err := cs.Live(); !errors.Is(err, ErrNoCode) {
+		t.Errorf("Live with no code = %v, want ErrNoCode", err)
 	}
+	// And settling against one that never existed does nothing rather than
+	// panicking.
+	cs.Settle("123456", false)
 }
 
 func TestCodesAreDrawnFromTheWholeSpace(t *testing.T) {

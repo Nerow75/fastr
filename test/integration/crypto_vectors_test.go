@@ -25,15 +25,17 @@ import (
 
 type cryptoVectors struct {
 	Handshakes []struct {
-		Name        string `json:"name"`
-		ClientPriv  string `json:"client_priv"`
-		ClientPub   string `json:"client_pub"`
-		ServerPub   string `json:"server_pub"`
-		Salt        string `json:"salt"`
-		Code        string `json:"code"`
-		HandshakeID string `json:"handshake_id"`
-		Key         string `json:"key"`
-		Proof       string `json:"proof"`
+		Name          string `json:"name"`
+		Code          string `json:"code"`
+		HostID        string `json:"host_id"`
+		SessionID     string `json:"sid"`
+		ClientSecret  string `json:"client_secret"`
+		ServerSecret  string `json:"server_secret"`
+		HandshakeID   string `json:"handshake_id"`
+		ClientMessage string `json:"client_message"`
+		ServerMessage string `json:"server_message"`
+		Key           string `json:"key"`
+		Proof         string `json:"proof"`
 	} `json:"handshakes"`
 	Envelopes []struct {
 		Name      string `json:"name"`
@@ -80,22 +82,59 @@ func decode(t *testing.T, s string) []byte {
 
 func TestHandshakeMatchesCommittedVectors(t *testing.T) {
 	vectors := loadVectors(t)
+	b64 := base64.StdEncoding.EncodeToString
 
 	for _, v := range vectors.Handshakes {
 		t.Run(v.Name, func(t *testing.T) {
-			key, proof, err := pairing.ClientDerive(
-				decode(t, v.ClientPriv), decode(t, v.ServerPub), decode(t, v.ClientPub),
-				decode(t, v.Salt), v.Code, v.HandshakeID,
-			)
+			sid := decode(t, v.SessionID)
+
+			clientSecret, err := pairing.SecretFrom(decode(t, v.ClientSecret))
 			if err != nil {
-				t.Fatalf("ClientDerive: %v", err)
+				t.Fatalf("client secret: %v", err)
+			}
+			serverSecret, err := pairing.SecretFrom(decode(t, v.ServerSecret))
+			if err != nil {
+				t.Fatalf("server secret: %v", err)
 			}
 
-			if got := base64.StdEncoding.EncodeToString(key); got != v.Key {
-				t.Errorf("session key drifted\n got %s\nwant %s", got, v.Key)
+			// Recomputed rather than read out of the file, so a change in how a
+			// secret reduces into the scalar field is caught here instead of
+			// hiding behind a value copied from the fixture.
+			clientMessage := pairing.Message(clientSecret, v.Code, v.HostID, sid)
+			serverMessage := pairing.Message(serverSecret, v.Code, v.HostID, sid)
+
+			if got := b64(clientMessage); got != v.ClientMessage {
+				t.Errorf("client message drifted\n got %s\nwant %s", got, v.ClientMessage)
 			}
-			if got := base64.StdEncoding.EncodeToString(proof); got != v.Proof {
-				t.Errorf("confirmation proof drifted\n got %s\nwant %s", got, v.Proof)
+			if got := b64(serverMessage); got != v.ServerMessage {
+				t.Errorf("server message drifted\n got %s\nwant %s", got, v.ServerMessage)
+			}
+
+			// Both halves, because the point of the exchange is that they land
+			// in the same place from different secrets. Checking only the
+			// client's would pass just as well if the host's arithmetic were
+			// wrong in a way no test here drove.
+			for _, side := range []struct {
+				name string
+				run  func() ([]byte, []byte, error)
+			}{
+				{"joining device", func() ([]byte, []byte, error) {
+					return pairing.ClientComplete(clientSecret, sid, clientMessage, serverMessage, v.HandshakeID)
+				}},
+				{"host", func() ([]byte, []byte, error) {
+					return pairing.HostComplete(serverSecret, sid, clientMessage, serverMessage, v.HandshakeID)
+				}},
+			} {
+				key, proof, err := side.run()
+				if err != nil {
+					t.Fatalf("%s: %v", side.name, err)
+				}
+				if got := b64(key); got != v.Key {
+					t.Errorf("%s: session key drifted\n got %s\nwant %s", side.name, got, v.Key)
+				}
+				if got := b64(proof); got != v.Proof {
+					t.Errorf("%s: confirmation proof drifted\n got %s\nwant %s", side.name, got, v.Proof)
+				}
 			}
 		})
 	}

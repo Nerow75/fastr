@@ -10,16 +10,15 @@
 > **Pre-alpha. There is no tagged release yet and nothing to download.**
 >
 > The six user stories work end to end and are covered by tests on Linux and Windows,
-> and a real phone has moved files in both directions. What stands between that and a
+> and a real phone has moved files in both directions. Pairing now uses
+> [CPace](specs/001-lan-file-transfer/contracts/pairing.md), so the six-digit code is
+> never transmitted and cannot be attacked offline. What is still missing before a
 > first release is named rather than implied:
 >
-> - **The pairing code has not been hardened.** Six digits carry about twenty bits, so
->   somebody who captures a whole handshake can search that space offline. The online
->   defences do not apply to an offline attempt. This is
->   [T137](specs/001-lan-file-transfer/tasks.md) and it blocks a release.
-> - **The trusted-mode setup has not been walked through on real hardware**, only
->   against the platforms' documentation.
-> - **No signed builds yet.**
+> - **The setup has not been walked through on real hardware end to end**, only the
+>   transfers have. Trusted mode in particular is written from the platforms'
+>   documentation rather than from having performed it.
+> - **No signed builds yet**, so Windows will warn about an unknown publisher.
 >
 > Build it yourself with `make build` if you want to try it. See
 > [docs/using-fastr.md](docs/using-fastr.md) for what it does, and for what simple
@@ -91,7 +90,7 @@ These are non-negotiable and enforced by the [project constitution](.specify/mem
 - [x] Queue, history, device management
 - [x] Phone to phone through a relay
 - [x] Trusted mode, apart from streamed decryption on the phone
-- [ ] Pairing hardening, which blocks a release
+- [x] Pairing hardened with CPace: the code is never sent, and guessing is online only
 - [ ] Setup verified on physical Android and iOS hardware
 - [ ] Signed builds for Linux and Windows
 
@@ -123,10 +122,11 @@ the same wall and serves its browser mode over plain HTTP for exactly this reaso
 - **Web application**: Svelte and TypeScript, built with Vite and embedded in the binary.
 - **Discovery**: mDNS / DNS-SD, advertising `_fastr._tcp`.
 - **State**: a single bbolt file. No database server, no cgo.
-- **Cryptography**: X25519 and ChaCha20-Poly1305, with audited pure-JavaScript implementations on
+- **Cryptography**: CPace over ristretto255 for pairing, so the six-digit code never travels;
+  ChaCha20-Poly1305 for everything sealed afterwards. Audited pure-JavaScript implementations on
   the phone, where the browser's native API is unavailable.
 
-Nine direct dependencies, each argued for in
+Ten direct dependencies, each argued for in
 [research.md](specs/001-lan-file-transfer/research.md#dependency-budget). No HTTP framework, no
 ORM, nothing requiring cgo, and nothing that makes a network call you did not ask for.
 

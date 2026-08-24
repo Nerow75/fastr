@@ -2,39 +2,42 @@
   "handshakes": [
     {
       "name": "basic",
-      "client_priv": "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o=",
-      "client_pub": "yP7Kgb4ZbN8sreq/E8SQPXYy3OSVWqaLbl2a3vVOJhY=",
-      "server_priv": "ZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj0=",
-      "server_pub": "os6TxkuF54pi0j2IjkF3AmmwTcVWXt0dtUAwrjeB724=",
-      "salt": "yM/W3eTr8vkABw4VHCMqMTg/Rk1UW2JpcHd+hYyTmqE=",
       "code": "482915",
+      "host_id": "host-abcdef",
+      "sid": "yM/W3eTr8vkABw4VHCMqMQ==",
+      "client_secret": "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09rh6O/2/QQLEhkgJy41PENKUVhfZm10e4KJkJeepayzug==",
+      "server_secret": "ZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj1ES1JZYGdudXyDipGYn6attLvCydDX3uXs8/oBCA8WHQ==",
       "handshake_id": "abcdefghijklmnopqrstuv",
-      "key": "J1R/itYn0Oo/ssk46E2XevUXPmP8VdiZm7qbq9XzeJ8=",
-      "proof": "6eUMSUdGdKWRApibHIyT9r7MtHvEY36lYyJjliwylc0="
+      "client_message": "/pNQ9orldbZAR88xUeG4srlwCAqkN9KlYAPo2FOr3gc=",
+      "server_message": "mG4GNLI7dmYAKOi9aJ2A61E8Dxa6yhLORPASHabZm0o=",
+      "key": "H0inv7uPdcvMy8RvegYInxxB4X2WSExaattuqfMkFAc=",
+      "proof": "TTXUaeL73hLBK+h0yjY5oCeqwvU2mnTJX7Qay9CLxkU="
     },
     {
       "name": "leading zeros in code",
-      "client_priv": "AgkQFx4lLDM6QUhPVl1ka3J5gIeOlZyjqrG4v8bN1Ns=",
-      "client_pub": "c+eZcckRAClyNjKoC3B79PYsEldjNG4ehxjWwNzDqjo=",
-      "server_priv": "ZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQbIikwNz4=",
-      "server_pub": "FbYJk4ZN6W6KASsA1K5bKB+Rfl0Odvak2KuO0/gxqBo=",
-      "salt": "ydDX3uXs8/oBCA8WHSQrMjlAR05VXGNqcXh/ho2Um6I=",
       "code": "000042",
+      "host_id": "host-abcdef",
+      "sid": "ydDX3uXs8/oBCA8WHSQrMg==",
+      "client_secret": "AgkQFx4lLDM6QUhPVl1ka3J5gIeOlZyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251fIOKkZifpq20uw==",
+      "server_secret": "ZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQbIikwNz5FTFNaYWhvdn2Ei5KZoKeutbzDytHY3+bt9PsCCRAXHg==",
       "handshake_id": "AAAAAAAAAAAAAAAAAAAAAA",
-      "key": "zTiOuu2VhbEI4TySadQ9GgSxRsa5HgQSpwhALFv+xvw=",
-      "proof": "/YgmJHKHRyo3mzB7e0g5P+WAYG/v57IULM6BEUTgTgk="
+      "client_message": "Nv5cC4tV1eqCWs5wJ8koaQhHav55VoUUgov6UhZuNjg=",
+      "server_message": "St6hCdE8jLGnhgq/wY89PD0b8yQb23PAkaCZDXWkvhg=",
+      "key": "v8DekSDpXoeCWVMTOZIpo3G5eckEAn9Ty33N5QqsOn8=",
+      "proof": "ElBi8LQMTviM4+Tt3fXw/iD9Gska2YPiLKptqwePfVY="
     },
     {
-      "name": "non ascii id",
-      "client_priv": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw=",
-      "client_pub": "u1D/noKldM+/gg6X9g+5wUPsdBXPUU+M/Zjv9Z4FlhQ=",
-      "server_priv": "Zm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD8=",
-      "server_pub": "6NDq1EWKU6s2mY1l2geNoSpxO7y3D28ttHWhE8sLFzM=",
-      "salt": "ytHY3+bt9PsCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKM=",
+      "name": "non ascii identifiers",
       "code": "999999",
+      "host_id": "hôte-éé",
+      "sid": "ytHY3+bt9PsCCRAXHiUsMw==",
+      "client_secret": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4/wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vA==",
+      "server_secret": "Zm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmlwd36FjJOaoaivtr3Ey9LZ4Ofu9fwDChEYHw==",
       "handshake_id": "zz-_09AZ______________",
-      "key": "Zhp8MOEIgwMGyri/NSgPSfs82iRl4OkC6tx2kLGg2r4=",
-      "proof": "URrASdQo3A5V3KwGqrmXSoCPu8vK+Ua80cbDovgP/Lg="
+      "client_message": "MNN6oi4ipMuVUc0ZNSOWkTAX1qHYwUENjILyBN5r+Uc=",
+      "server_message": "ZBs4OMsRAYkZduDbI34+223Oawr25KmWuHRfgGu3oXo=",
+      "key": "mCpHy6DF6BxcEwsVWmZR29Gufsm/TnsCrLuVRgMpiSI=",
+      "proof": "ywsx1kNAi7GDXLW6JaMOChq5dQ3z5VQH1oILBh6+xek="
     }
   ],
   "envelopes": [
@@ -44,9 +47,9 @@
       "direction": 0,
       "method": "POST",
       "path": "/api/transfers",
-      "version": 1,
+      "version": 2,
       "plaintext": "eyJhIjoxfQ==",
-      "sealed": "AAAAAAAAAAHIr33h9eYzgAcqK9UQA7aZu8qQHW58Vw=="
+      "sealed": "AAAAAAAAAAHIr33h9eYzz6Px4XZE0cAVZXBe/aGQoQ=="
     },
     {
       "name": "server to client",
@@ -54,9 +57,9 @@
       "direction": 1,
       "method": "GET",
       "path": "/api/devices",
-      "version": 1,
+      "version": 2,
       "plaintext": "eyJkZXZpY2VzIjpbXX0=",
-      "sealed": "AAAAAAAAAAEQf6kyHdrw0yqZKO2eYFq9TuDt2ikOabJcnPg4sjg="
+      "sealed": "AAAAAAAAAAEQf6kyHdrw0yqZKO2eYChNerrR9PyLFt5V7MJX+Vk="
     },
     {
       "name": "empty payload",
@@ -64,9 +67,9 @@
       "direction": 0,
       "method": "DELETE",
       "path": "/api/pairings/x",
-      "version": 1,
+      "version": 2,
       "plaintext": "",
-      "sealed": "AAAAAAAAAAGtcIY4ohyKq+IiwPBVsITY"
+      "sealed": "AAAAAAAAAAGyzOoJBO8A+rDTkfdlSbF+"
     },
     {
       "name": "path with unicode",
@@ -74,9 +77,9 @@
       "direction": 0,
       "method": "PATCH",
       "path": "/api/devices/été",
-      "version": 1,
+      "version": 2,
       "plaintext": "eyJuYW1lIjoiw6l0w6kifQ==",
-      "sealed": "AAAAAAAAAAF799baMOhPL/U9rnVz73FjdBFCXixRud5MKQuFH/xNJQ=="
+      "sealed": "AAAAAAAAAAF799baMOhPL/U9rnVz73FjvjutOOoT/m1GioNp+oniqA=="
     }
   ],
   "checksums": [

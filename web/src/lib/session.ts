@@ -10,7 +10,7 @@
  */
 
 import { Envelope, ClientToServer, toBase64, fromBase64, ReplayError } from '../crypto/envelope.js';
-import { derive, generateKeypair } from '../crypto/handshake.js';
+import { begin, complete, newSessionId } from '../crypto/cpace.js';
 import type { ApiError } from './i18n.js';
 
 const STORAGE_KEY = 'fastr.session.v1';
@@ -155,25 +155,36 @@ export class Session {
     onWaiting?: () => void,
     signal?: AbortSignal,
   ): Promise<Session> {
-    const { privateKey, publicKey } = generateKeypair();
+    // The computer's own identifier, which binds the exchange to this machine:
+    // digits read off one screen cannot be spent at another computer showing
+    // the same six. /connect is unauthenticated by design and carries nothing
+    // the mDNS record does not already broadcast.
+    const host = (await (await fetch('/connect')).json()) as { device_id: string };
 
-    const init = await postPlain<{ handshake_id: string; server_pub: string; salt: string }>(
-      '/api/pair/init',
-      { client_pub: toBase64(publicKey), device_name: deviceName, platform: detectPlatform() },
-    );
+    const sid = newSessionId();
+    const { secret, message } = begin(code, host.device_id, sid);
 
-    const { key, proof } = derive(
-      privateKey,
-      fromBase64(init.server_pub),
-      publicKey,
-      fromBase64(init.salt),
-      code,
+    // The code is **not** in this request, and is not in the next one either.
+    // Under CPace it is an input to a derivation on each side, never a field on
+    // the wire. This exchange runs over plain HTTP in simple mode, and the
+    // design before it handed the six digits to anyone reading the network.
+    const init = await postPlain<{ handshake_id: string; message: string }>('/api/pair/init', {
+      sid: toBase64(sid),
+      message: toBase64(message),
+      device_name: deviceName,
+      platform: detectPlatform(),
+    });
+
+    const { key, proof } = complete(
+      secret,
+      sid,
+      message,
+      fromBase64(init.message),
       init.handshake_id,
     );
 
     const confirm = await postPlain<{ pending_id: string; state: string }>('/api/pair/confirm', {
       handshake_id: init.handshake_id,
-      code,
       proof: toBase64(proof),
       device_name: deviceName,
       platform: detectPlatform(),

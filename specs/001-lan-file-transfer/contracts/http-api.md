@@ -49,8 +49,8 @@ See [pairing.md](./pairing.md) for the handshake and key derivation.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/pair/init` | Client sends its ephemeral public key. Server replies with its own and a handshake identifier. |
-| `POST` | `/api/pair/confirm` | Client proves knowledge of the pairing code. On success the server returns `202` with a `pending_id`: the device is queued for the human confirmation FR-010 requires, **not** granted access. Rate limited; a code dies after 5 failures or its expiry, whichever comes first (FR-012, FR-013). |
+| `POST` | `/api/pair/init` | Client sends a session identifier and its CPace group element. Server replies with its own and a handshake identifier. The pairing code is **not** in this request, nor in any other; see [pairing.md](./pairing.md). Rate limited: this is where a guess is admitted. |
+| `POST` | `/api/pair/confirm` | Client presents the confirmation tag, which proves it derived the same key and so held the same code. On success the server returns `202` with a `pending_id`: the device is queued for the human confirmation FR-010 requires, **not** granted access. A wrong tag spends one of five attempts; a code dies after 5 failures or its expiry, whichever comes first (FR-012, FR-013). |
 | `GET` | `/api/pair/status?pending={id}` | Polled by the waiting device. Returns `awaiting_approval`, `rejected`, `expired`, or `approved`. Only `approved` carries the credential, sealed with the handshake key, and only once. Unauthenticated by necessity: the device has no credential yet. |
 | `GET` | `/api/pair/pending` | Host only. Lists devices awaiting confirmation. Carries no key material. |
 | `POST` | `/api/pair/pending/{id}/approve` | Host only. The human saying yes. |

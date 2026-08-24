@@ -16,17 +16,25 @@ import (
 	"github.com/Nerow75/fastr/internal/transfer"
 )
 
+// vector pins one CPace exchange from fixed inputs.
+//
+// Both scalars are given as the uniform bytes they reduce from rather than as
+// scalars, because that is the input each implementation actually takes, and
+// reducing them differently is exactly the kind of disagreement this file
+// exists to catch.
 type vector struct {
-	Name        string `json:"name"`
-	ClientPriv  string `json:"client_priv"`
-	ClientPub   string `json:"client_pub"`
-	ServerPriv  string `json:"server_priv"`
-	ServerPub   string `json:"server_pub"`
-	Salt        string `json:"salt"`
-	Code        string `json:"code"`
-	HandshakeID string `json:"handshake_id"`
-	Key         string `json:"key"`
-	Proof       string `json:"proof"`
+	Name         string `json:"name"`
+	Code         string `json:"code"`
+	HostID       string `json:"host_id"`
+	SessionID    string `json:"sid"`
+	ClientSecret string `json:"client_secret"`
+	ServerSecret string `json:"server_secret"`
+	HandshakeID  string `json:"handshake_id"`
+
+	ClientMessage string `json:"client_message"`
+	ServerMessage string `json:"server_message"`
+	Key           string `json:"key"`
+	Proof         string `json:"proof"`
 }
 
 type envelopeVector struct {
@@ -63,30 +71,44 @@ func main() {
 		Checksums  []checksumVector `json:"checksums"`
 	}{}
 
-	// Fixed keys, so the vectors are reproducible.
-	cases := []struct{ name, code, id string }{
-		{"basic", "482915", "abcdefghijklmnopqrstuv"},
-		{"leading zeros in code", "000042", "AAAAAAAAAAAAAAAAAAAAAA"},
-		{"non ascii id", "999999", "zz-_09AZ______________"},
+	// Fixed inputs, so the vectors are reproducible.
+	cases := []struct{ name, code, hostID, id string }{
+		{"basic", "482915", "host-abcdef", "abcdefghijklmnopqrstuv"},
+		{"leading zeros in code", "000042", "host-abcdef", "AAAAAAAAAAAAAAAAAAAAAA"},
+		{"non ascii identifiers", "999999", "hôte-éé", "zz-_09AZ______________"},
 	}
 
 	for i, c := range cases {
-		clientPriv := fixed(byte(i + 1))
-		serverPriv := fixed(byte(i + 100))
-		salt := fixed(byte(i + 200))
+		clientUniform := fixed(byte(i+1), pairing.UniformSecretSize)
+		serverUniform := fixed(byte(i+100), pairing.UniformSecretSize)
+		sid := fixed(byte(i+200), pairing.SessionIDSize)
 
-		clientPub, err := pairing.PublicKey(clientPriv)
+		clientSecret, err := pairing.SecretFrom(clientUniform)
 		must(err)
-		serverPub, err := pairing.PublicKey(serverPriv)
+		serverSecret, err := pairing.SecretFrom(serverUniform)
 		must(err)
 
-		key, proof, err := pairing.ClientDerive(clientPriv, serverPub, clientPub, salt, c.code, c.id)
+		clientMessage := pairing.Message(clientSecret, c.code, c.hostID, sid)
+		serverMessage := pairing.Message(serverSecret, c.code, c.hostID, sid)
+
+		key, proof, err := pairing.ClientComplete(clientSecret, sid, clientMessage, serverMessage, c.id)
 		must(err)
+
+		// The host has to land on the same two values from the other secret, or
+		// the vector would pin one side's arithmetic rather than the agreement.
+		hostKey, hostProof, err := pairing.HostComplete(serverSecret, sid, clientMessage, serverMessage, c.id)
+		must(err)
+		if b64(hostKey) != b64(key) || b64(hostProof) != b64(proof) {
+			fmt.Fprintln(os.Stderr, "the two sides of the exchange disagree")
+			os.Exit(1)
+		}
 
 		out.Handshakes = append(out.Handshakes, vector{
-			Name: c.name, ClientPriv: b64(clientPriv), ClientPub: b64(clientPub),
-			ServerPriv: b64(serverPriv), ServerPub: b64(serverPub), Salt: b64(salt),
-			Code: c.code, HandshakeID: c.id, Key: b64(key), Proof: b64(proof),
+			Name: c.name, Code: c.code, HostID: c.hostID, SessionID: b64(sid),
+			ClientSecret: b64(clientUniform), ServerSecret: b64(serverUniform),
+			HandshakeID:   c.id,
+			ClientMessage: b64(clientMessage), ServerMessage: b64(serverMessage),
+			Key: b64(key), Proof: b64(proof),
 		})
 	}
 
@@ -101,7 +123,7 @@ func main() {
 	}
 
 	for i, c := range envCases {
-		key := fixed(byte(i + 50))
+		key := fixed(byte(i+50), 32)
 		env, err := pairing.NewEnvelope(key, pairing.Direction(c.direction)) //nolint:gosec
 		must(err)
 		sealed, err := env.Seal(c.method, c.path, pairing.ProtocolVersion, []byte(c.plaintext))
@@ -162,8 +184,8 @@ func ramp(n int) []byte {
 	return out
 }
 
-func fixed(seed byte) []byte {
-	out := make([]byte, 32)
+func fixed(seed byte, n int) []byte {
+	out := make([]byte, n)
 	for i := range out {
 		out[i] = seed + byte(i)*7
 	}

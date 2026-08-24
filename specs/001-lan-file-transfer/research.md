@@ -92,9 +92,11 @@ live progress and queue reordering want a client-side model.
 
 ## 4. Cryptography available without a secure context
 
-**Decision**: X25519 key agreement authenticated by the pairing code, HKDF for derivation, and
-ChaCha20-Poly1305 as the AEAD. On the Go side, `golang.org/x/crypto`. On the web side,
-`@noble/curves` and `@noble/ciphers`.
+**Decision**: CPace, the balanced password-authenticated key exchange selected by the CFRG, in the
+CPACE-RISTRETTO255-SHA512 suite of
+[draft-irtf-cfrg-cpace-14](https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/), with
+ChaCha20-Poly1305 as the AEAD. On the Go side, `github.com/gtank/ristretto255` and
+`golang.org/x/crypto`. On the web side, `@noble/curves` and `@noble/ciphers`.
 
 **Rationale**: The pairing exchange and every credential must be protected even in simple mode,
 where the page is served over plain HTTP and `crypto.subtle` does not exist. The noble libraries
@@ -102,15 +104,39 @@ are audited, dependency-free, and implemented in pure JavaScript, so they work i
 context where the native API does not. ChaCha20-Poly1305 outperforms AES-GCM on phones lacking
 hardware AES, which is the relevant case here.
 
-Binding the key agreement to the pairing code prevents a passive eavesdropper on the network from
-recovering the session token, which a plain code-over-HTTP exchange would expose.
+**A six-digit code carries about twenty bits, and that number decides the design.** Twenty bits is
+an acceptable secret only if every attempt to use it costs an interaction. It is a worthless one
+the moment anything can be tested without the host's participation. CPace is what makes the first
+true: the code is mapped to a group generator on each side and never sent, so the whole transcript
+is independent of it, and an attacker has to commit to exactly one candidate before the exchange
+begins. One interaction, one guess, five of them, then the code dies (FR-013).
 
-**Alternatives considered**: sending the pairing code in the clear and issuing a bearer token was
-rejected because anyone capturing that exchange inherits access, which would break Principle V
-even in its amended form, since credentials must be encrypted in every mode. A full PAKE such as
-SPAKE2 is the textbook answer and resists offline brute force of the code; it stays on the table
-as a hardening step, and the rate limiting and short expiry in FR-012 and FR-013 cover the gap
-meanwhile. **Flagged for review before the first release.**
+**Why not the design this replaced.** The first implementation was an ordinary X25519 agreement
+with the code stirred into HKDF, and it failed in two ways that were found by writing the tests
+this section now points at:
+
+- The joining device **sent the code in the body of the confirm request**. Simple mode is plain
+  HTTP by construction, so an observer did not need an attack; they read the six digits. This was
+  never the intent of the design, and it is the reason
+  `test/integration/pairing_secrecy_test.go` asserts on recorded traffic rather than on a struct.
+- Even with the code withheld, the confirmation tag was an **offline oracle**. Anyone who could
+  play the host's part once — a rogue mDNS record, a spoofed address, a captive network — kept a
+  tag testable against all 10^6 candidates at their leisure. The online defences do not apply to a
+  search run offline.
+
+**Why CPace rather than SPAKE2.** SPAKE2 was the earlier note's suggestion and would also work.
+CPace is what the CFRG selected for the balanced case, it needs no nothing-up-my-sleeve points,
+and, decisively for a project with two implementations that must agree byte for byte, its draft
+publishes a complete test vector for exactly this suite. Both implementations check it: appendix
+B.3, verified in `internal/pairing/cpace_test.go` and `web/scripts/verify-crypto.ts`. Two
+implementations agreeing with each other proves only that they made the same mistake; agreeing
+with a third party's published answer is the evidence available offline that this is CPace rather
+than something shaped like it.
+
+**Cost**: the browser bundle grew by about 8 kB compressed, for the ristretto255 arithmetic.
+Devices paired under the earlier protocol have to pair again, which is one screen.
+
+**Resolved**, and the release note it was blocking is gone with it.
 
 ---
 
@@ -312,30 +338,32 @@ rather than a static check.
 
 ## Dependency budget
 
-Eleven direct dependencies, of which three are build-time only and never reach the user. Each is
+Twelve direct dependencies, of which three are build-time only and never reach the user. Each is
 justified per the constitution's rule that added complexity must be argued for.
 
 The budget grew from the nine estimated during planning. `golang.org/x/sys` was an oversight: the
-platform layer cannot do its job without syscalls. `rsc.io/qr` is a deliberate addition, argued
-in its row below.
+platform layer cannot do its job without syscalls. `rsc.io/qr` and `gtank/ristretto255` are
+deliberate additions, argued in their rows below.
 
 | Dependency | Why it is not the standard library |
 |---|---|
 | `hashicorp/mdns` | mDNS and DNS-SD are not in the standard library, and reimplementing service discovery is a project of its own. Replaced `libp2p/zeroconf/v2` at implementation time; see section 8. |
 | `fyne.io/systray` | Tray integration is per-platform system API work. |
 | `go.etcd.io/bbolt` | Transactional durable storage without cgo. |
-| `golang.org/x/crypto` | X25519, HKDF, ChaCha20-Poly1305, BLAKE2b. Effectively an extension of the standard library. |
+| `golang.org/x/crypto` | ChaCha20-Poly1305 and BLAKE2b. Effectively an extension of the standard library. |
+| `github.com/gtank/ristretto255` | The prime-order group CPace runs over, built on `filippo.io/edwards25519`. Not in the standard library, and a hand-rolled ristretto encoding is the kind of thing that is subtly wrong on one input in a million. Section 4. |
 | `golang.org/x/sys` | Platform syscalls: free space, file locking, known folders, the registry. |
 | `rsc.io/qr` | QR is a specified format with masking, error correction, and version selection. A subtly wrong implementation produces a code that scans on the phone you tested with and fails on the next one. |
 | Svelte, Vite, TypeScript | Build-time only, never shipped to the user as a runtime. |
-| `@noble/curves`, `@noble/ciphers` | The browser's native cryptography is unavailable in the context the mobile page runs in. |
+| `@noble/curves`, `@noble/ciphers` | The browser's native cryptography is unavailable in the context the mobile page runs in. `@noble/curves` also supplies ristretto255, which is what lets the browser speak the same CPace as the host. |
 
 Explicitly rejected: any HTTP framework, any ORM, any logging framework, any dependency that
 requires cgo, and any dependency that would perform a network call the user did not ask for.
 
 ## Items flagged for the implementation phase
 
-1. **Pairing hardening**: consider a full PAKE before the first release. Section 4.
+1. ~~**Pairing hardening**: consider a full PAKE before the first release.~~ Done: CPace,
+   2026-08-24. Section 4.
 2. **mDNS library maintenance**: confirm before committing, fallback identified. Section 8.
 3. **Linux tray dependency**: must degrade gracefully, not fail to start. Section 10.
 4. **Trusted-mode flows on real devices**: iOS full-trust and Android user CA both need

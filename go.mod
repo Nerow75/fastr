@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/gtank/ristretto255 v0.1.2 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.57.0 // indirect

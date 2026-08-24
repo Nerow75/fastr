@@ -8,6 +8,138 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-24 — The pairing code stops travelling
+
+Tasks: 148 → 149 of 160. T137, the one thing the README said blocked a release.
+
+The task was "implement a PAKE or document the accepted risk". Implemented
+**CPace**, the CFRG's balanced password-authenticated key exchange, in the
+CPACE-RISTRETTO255-SHA512 suite of draft-irtf-cfrg-cpace-14.
+
+### The flagged risk was the second-worst thing here
+
+What was written down, in `research.md` and in the README, was an offline
+dictionary attack: six digits are about twenty bits, and anyone who could play
+the host's part once kept a confirmation tag they could test against all 10^6
+candidates at their leisure. Real, and worth fixing.
+
+Reading `handlePairConfirm` to fix it turned up something plainer. The joining
+device **put the six digits in the request body**:
+
+```go
+type pairConfirmRequest struct {
+	HandshakeID string `json:"handshake_id"`
+	Code        string `json:"code"`      // ← on the wire, in the clear
+	Proof       string `json:"proof"`
+	...
+}
+```
+
+Simple mode is plain HTTP by construction — a browser grants no secure context
+to a LAN address, so there is nothing to encrypt this with before a key exists.
+An observer did not need an offline search. They read the code.
+
+That was never the intent: the derivation mixed the code in precisely so it
+would not have to travel, and then a second code field was added so the server
+could check it against its own. Both halves are defensible on their own. It is
+why the tests that came out of this assert on **recorded traffic** rather than on
+the shape of a struct: a rule about what a request may contain is one somebody
+re-adds in good faith.
+
+### What CPace buys, precisely
+
+Both sides map the code to a group generator only they can compute, and exchange
+elements over it:
+
+```
+G  = map_to_ristretto255(SHA-512(generator_string(DSI, code, host_id, sid)))
+Ya = ya·G          Yb = yb·G          K = ya·Yb = yb·Ya
+```
+
+The code never leaves the device holding it. Everything on the wire is
+independent of it — the two elements are uniformly distributed whichever six
+digits produced them — so no candidate can be tested against any of it.
+
+And an attacker who *answers* has to choose their candidate **before** computing
+their message. Relating their generator to the honest one is a discrete
+logarithm. So one interaction tests exactly one of the million codes and spends
+one of the five attempts. That is what makes twenty bits an acceptable amount to
+ask a person to retype: not the entropy, the cost of a guess.
+
+### Why CPace and not SPAKE2
+
+The earlier note said SPAKE2, which would also work. The deciding argument was
+not cryptographic.
+
+This protocol has **two implementations that must agree byte for byte**, in Go
+and in TypeScript, and no way to test one against the other except by testing
+them against each other. Two implementations agreeing proves they made the same
+mistake just as readily as it proves they are right. The CPace draft publishes a
+complete test vector for exactly this suite — generator string, hash, generator,
+both scalars, both messages, K, and the ISK — and both sides now reproduce it:
+`internal/pairing/cpace_test.go` and `web/scripts/verify-crypto.ts`. That is a
+third party's answer, and it is the only external evidence available offline that
+this is CPace rather than something shaped like it.
+
+It paid for itself immediately. The Go implementation failed the vector on the
+first run — on my transcription of the vector, not on the code, which is exactly
+the kind of thing that would otherwise have been "fixed" in the implementation.
+The test now keeps the draft's own line breaks so a slip shows up as a line that
+is not 56 characters.
+
+### The mistake that would have been silent
+
+`ClientComplete` and `HostComplete` are two functions rather than one with a
+flag. The only difference between them is which message is the peer's, and
+multiplying by your *own* message instead of the other side's produces a key
+nobody else can reach — silently, with every self-consistency test still
+passing, because a single implementation talking to itself is consistent.
+
+The vector generator caught it, because it checks that the two sides land in the
+same place from different secrets. Both the committed vectors and the Go test now
+run both halves for that reason.
+
+### The accounting had to move
+
+A guess used to be counted where the code was compared. There is no comparison
+now: the host feeds the code to a derivation and finds out a round trip later
+whether it was the right one. So `Codes.Verify` became `Codes.Live` — admit a
+guess, enforce the growing delay — and `Codes.Settle(code, ok)`, which records
+how it turned out.
+
+`Settle` names the code rather than assuming the current one. Three minutes is
+long enough for the host to have moved on, and counting a stale failure against a
+fresh code would spend a budget the attempt never touched.
+
+Starting an exchange and walking away therefore counts for nothing — and resets
+nothing, which is the part with a test of its own. If abandoning an attempt
+cleared the delay, five guesses spread over three minutes would become five as
+fast as the network allows.
+
+### Verified
+
+- The draft's appendix B.3 vector, in Go and in TypeScript, at every intermediate
+  step rather than only the final key.
+- 33 cross-implementation vectors, both sides of each exchange.
+- 409 Go tests, 23 browser tests on Chromium, both lints clean.
+- Two secrecy tests asserting the code appears in no recorded body: one over the
+  real endpoints, one driving the client that actually ships. **Both verified to
+  fail** by putting the code back in the confirm request.
+
+### Cost
+
+Protocol version 2. Existing pairings are invalidated and devices pair again,
+which is one screen. The browser bundle grew about 8 kB compressed for the
+ristretto255 arithmetic. One new dependency, `github.com/gtank/ristretto255`.
+
+**`ristretto255.Point.hashToCurve` is deprecated in @noble/curves and is
+deliberately still used.** The replacement it points at runs expand_message_xmd
+with a domain separation tag first, which is a different function landing on a
+different point. Following the deprecation would break pairing between any two
+builds that disagreed about it. The vector test is what would catch that.
+
+---
+
 ## 2026-08-23 — The audits, and the two things they found
 
 Tasks: 141 → 146 of 159.
@@ -651,10 +783,10 @@ test. *(Done on 2026-08-22; see the entry above.)*
 
 **Blocks a release**
 
-- **T137, pairing hardening.** A 6-digit code carries ~20 bits, so an observer
-  who captures the whole handshake can search the code space *offline* against
-  the confirm ciphertext. The online defences do not apply to an offline
-  attempt. A PAKE such as SPAKE2 removes this by construction.
+- ~~**T137, pairing hardening.**~~ Done 2026-08-24; see that entry. CPace, and
+  the code no longer travels at all.
+- **T149**, the quickstart walked through on real Android and iOS hardware.
+  Needs a phone in hand.
 
 **Known gaps**
 

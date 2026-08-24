@@ -42,38 +42,66 @@ func (d Deps) handleConnect(w http.ResponseWriter, _ *http.Request) {
 }
 
 type pairInitRequest struct {
-	ClientPublicKey string `json:"client_pub"`
-	DeviceName      string `json:"device_name"`
-	Platform        string `json:"platform"`
+	// SessionID is chosen by the joining device and binds the exchange.
+	SessionID string `json:"sid"`
+	// Message is the joining device's CPace group element.
+	Message    string `json:"message"`
+	DeviceName string `json:"device_name"`
+	Platform   string `json:"platform"`
 }
 
 type pairInitResponse struct {
-	HandshakeID     string `json:"handshake_id"`
-	ServerPublicKey string `json:"server_pub"`
-	Salt            string `json:"salt"`
+	HandshakeID string `json:"handshake_id"`
+	// Message is this host's CPace group element. There is deliberately nothing
+	// else: no salt, no public key, and above all no pairing code.
+	Message string `json:"message"`
 }
 
-// maxPairBody bounds an unauthenticated request. Two public keys and a name do
-// not need more, and an unauthenticated endpoint should never read an unbounded
-// body.
+// maxPairBody bounds an unauthenticated request. Two group elements and a name
+// do not need more, and an unauthenticated endpoint should never read an
+// unbounded body.
 const maxPairBody = 4 << 10
 
 // handlePairInit starts a key agreement.
+//
+// This is where a guess is admitted, so this is where the attempt budget's
+// growing delay is enforced. Under CPace a candidate code is committed to
+// before the first message: whoever starts an exchange has already chosen which
+// of the million codes they are betting on, and finds out whether they were
+// right one round trip later.
+//
+// The code itself is read here and used as an input to a derivation. It is
+// never compared against anything the request carries, because the request
+// carries no code — that is the whole point of the change.
 func (d Deps) handlePairInit(w http.ResponseWriter, r *http.Request) {
 	var req pairInitRequest
 	if !d.decodePlain(w, r, &req) {
 		return
 	}
 
-	clientPub, err := base64.StdEncoding.DecodeString(req.ClientPublicKey)
+	sid, err := base64.StdEncoding.DecodeString(req.SessionID)
+	if err != nil {
+		d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
+		return
+	}
+	message, err := base64.StdEncoding.DecodeString(req.Message)
 	if err != nil {
 		d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
 		return
 	}
 
-	h, err := d.Handshakes.Begin(clientPub)
+	code, err := d.Codes.Live()
 	if err != nil {
-		if errors.Is(err, pairing.ErrBadPublicKey) {
+		d.writeError(w, r, codeError(err))
+		return
+	}
+
+	// The host's device identifier is the channel identifier, so an exchange
+	// run against this computer cannot be replayed at another one showing the
+	// same six digits.
+	h, reply, err := d.Handshakes.Begin(d.DeviceID, code, sid, message)
+	if err != nil {
+		if errors.Is(err, pairing.ErrBadSessionID) || errors.Is(err, pairing.ErrBadElement) {
 			d.writeError(w, r, app.Errorf(app.CodeInvalidRequest, err))
 			return
 		}
@@ -82,15 +110,13 @@ func (d Deps) handlePairInit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	d.writePlainJSON(w, http.StatusOK, pairInitResponse{
-		HandshakeID:     h.ID,
-		ServerPublicKey: base64.StdEncoding.EncodeToString(h.ServerPublicKey()),
-		Salt:            base64.StdEncoding.EncodeToString(h.Salt),
+		HandshakeID: h.ID,
+		Message:     base64.StdEncoding.EncodeToString(reply),
 	})
 }
 
 type pairConfirmRequest struct {
 	HandshakeID string `json:"handshake_id"`
-	Code        string `json:"code"`
 	Proof       string `json:"proof"`
 	DeviceName  string `json:"device_name"`
 	Platform    string `json:"platform"`
@@ -102,24 +128,21 @@ type pairConfirmResponse struct {
 	ExpiresIn int    `json:"expires_in"`
 }
 
-// handlePairConfirm verifies the code and the proof, then queues the device for
-// a human to approve on the host.
+// handlePairConfirm verifies the proof, then queues the device for a human to
+// approve on the host.
 //
-// The code is checked first so a wrong guess is counted and rate limited before
-// any cryptography runs. Both checks must pass; neither reveals which failed,
-// beyond what the attempt budget already tells an honest user.
+// The proof is the only evidence there is, and it is evidence of exactly one
+// thing: the other side derived the same key, which under CPace means it held
+// the same six digits. A wrong proof is a wrong guess and spends one of the
+// five attempts. There is nothing else to check, and in particular no code to
+// compare, because the request carries none.
 //
 // Knowing the code proves someone read it off the host's screen, which is a
 // strong signal but not the one FR-010 asks for: a human on the *receiving*
-// device deciding. So a correct code buys a place in the queue, not access.
+// device deciding. So a correct proof buys a place in the queue, not access.
 func (d Deps) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 	var req pairConfirmRequest
 	if !d.decodePlain(w, r, &req) {
-		return
-	}
-
-	if err := d.Codes.Verify(req.Code); err != nil {
-		d.writeError(w, r, codeError(err))
 		return
 	}
 
@@ -129,11 +152,19 @@ func (d Deps) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionKey, err := d.Handshakes.Complete(req.HandshakeID, req.Code, proof)
+	sessionKey, code, err := d.Handshakes.Complete(req.HandshakeID, proof)
 	if err != nil {
+		// A failed proof is settled against the code the exchange began with,
+		// not whichever is live now: three minutes is long enough for the host
+		// to have moved on, and a stale attempt must not spend a fresh code's
+		// budget.
+		if code != "" {
+			d.Codes.Settle(code, false)
+		}
 		d.writeError(w, r, handshakeError(err))
 		return
 	}
+	d.Codes.Settle(code, true)
 
 	pending, err := d.Pendings.Add(deviceDisplayName(req.DeviceName), req.Platform, sessionKey)
 	if err != nil {
@@ -504,9 +535,9 @@ func codeError(err error) error {
 
 // handshakeError maps a handshake failure to its catalogue code.
 //
-// A bad proof and an unknown handshake both surface as an invalid code: they
-// are the same event from the user's side, and distinguishing them would tell
-// an attacker which half of their guess was wrong.
+// A bad proof and an unknown handshake both surface as an invalid code, which
+// is what they are from the user's side: the digits did not work. There is no
+// longer a second half to a guess that a finer error could point at.
 func handshakeError(err error) error {
 	switch {
 	case errors.Is(err, pairing.ErrHandshakeExpired):

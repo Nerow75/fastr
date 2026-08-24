@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -203,31 +204,36 @@ func (h *harness) pair() *device {
 		h.t.Fatalf("issue code: %v", err)
 	}
 
-	clientPriv, clientPub, err := pairing.GenerateClientKeypair()
+	sid, err := pairing.NewSessionID(rand.Reader)
 	if err != nil {
-		h.t.Fatalf("keypair: %v", err)
+		h.t.Fatalf("session id: %v", err)
+	}
+	secret, clientMessage, err := pairing.ClientBegin(code.Display(), h.selfID, sid)
+	if err != nil {
+		h.t.Fatalf("begin: %v", err)
 	}
 
+	// The code is not in this request. It is an input to a derivation on each
+	// side and never a field on the wire.
 	var init struct {
-		HandshakeID     string `json:"handshake_id"`
-		ServerPublicKey string `json:"server_pub"`
-		Salt            string `json:"salt"`
+		HandshakeID string `json:"handshake_id"`
+		Message     string `json:"message"`
 	}
 	h.postPlain("/api/pair/init", map[string]any{
-		"client_pub":  base64.StdEncoding.EncodeToString(clientPub),
+		"sid":         base64.StdEncoding.EncodeToString(sid),
+		"message":     base64.StdEncoding.EncodeToString(clientMessage),
 		"device_name": "Test Phone",
 		"platform":    "android",
 	}, &init)
 
-	serverPub, _ := base64.StdEncoding.DecodeString(init.ServerPublicKey)
-	salt, _ := base64.StdEncoding.DecodeString(init.Salt)
+	serverMessage, _ := base64.StdEncoding.DecodeString(init.Message)
 
-	key, proof, err := pairing.ClientDerive(clientPriv, serverPub, clientPub, salt, code.Display(), init.HandshakeID)
+	key, proof, err := pairing.ClientComplete(secret, sid, clientMessage, serverMessage, init.HandshakeID)
 	if err != nil {
-		h.t.Fatalf("derive: %v", err)
+		h.t.Fatalf("complete: %v", err)
 	}
 
-	// A correct code buys a place in the queue, not access: FR-010 wants a
+	// A correct proof buys a place in the queue, not access: FR-010 wants a
 	// human on the host to decide.
 	var confirm struct {
 		PendingID string `json:"pending_id"`
@@ -235,7 +241,6 @@ func (h *harness) pair() *device {
 	}
 	h.postAccepted("/api/pair/confirm", map[string]any{
 		"handshake_id": init.HandshakeID,
-		"code":         code.Display(),
 		"proof":        base64.StdEncoding.EncodeToString(proof),
 		"device_name":  "Test Phone",
 		"platform":     "android",

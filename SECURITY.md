@@ -38,6 +38,8 @@ are shared environments, and "local" does not mean "trusted".
 - interception or downgrade of a transfer on the local network
 - secrets (keys, pairing tokens) leaking into logs, error messages, or the UI
 - a pairing that survives revocation or expiry
+- anything that lets a candidate pairing code be tested without the host answering: the code is
+  six digits, and the whole design rests on a guess costing one interaction
 - the application reaching the internet at all, which principle I forbids outright
 
 **Out of scope:**
