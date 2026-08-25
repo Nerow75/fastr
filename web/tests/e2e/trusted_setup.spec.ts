@@ -1,4 +1,4 @@
-import { test, expect, pair, openPhone } from './fixtures.js';
+import { test, expect, pair, openPhone, expand } from './fixtures.js';
 
 /**
  * Setting up trusted mode, from the screen the user actually reads.
@@ -34,6 +34,11 @@ test.describe('trusted mode setup', () => {
 
     const panel = desktop.getByRole('region', { name: 'Trusted mode', exact: true });
     await expect(panel).toBeVisible({ timeout: 20_000 });
+
+    // Folded, like everything that is not the send zone. Setting up trusted
+    // mode is a decision made once; the honesty it owes the user is carried by
+    // the protection notice, which never folds.
+    await expand(panel);
 
     // What it buys, and what it costs, both on screen before any control that
     // does anything. The second is not fine print: it is the reason this is
@@ -82,6 +87,7 @@ test.describe('trusted mode setup', () => {
     await pair(desktop, phone, 'Test Phone');
 
     const panel = desktop.getByRole('region', { name: 'Trusted mode', exact: true });
+    await expand(panel);
     await panel.getByRole('button', { name: 'Set up trusted mode', exact: true }).click();
     await panel.getByRole('button', { name: 'Create the certificate', exact: true }).click();
 

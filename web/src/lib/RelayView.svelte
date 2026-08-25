@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { onMount } from 'svelte';
   import { t, formatBytes } from './i18n.js';
   import { ApiFailure, type Session } from './session.js';
@@ -63,8 +64,13 @@
 </script>
 
 {#if relayed.length > 0}
-  <section aria-labelledby="relay-title" class="panel">
-    <h2 id="relay-title">{t('relay.title')}</h2>
+  <!-- Live by definition: it renders only while something is passing through,
+       so it never folds. -->
+  <Panel
+    id="relay"
+    title={t('relay.title')}
+    hint={t('panel.hint_relaying', { count: relayed.length })}
+  >
     <p class="muted">{t('relay.explanation')}</p>
 
     <ul class="entries">
@@ -85,7 +91,7 @@
         </li>
       {/each}
     </ul>
-  </section>
+  </Panel>
 {/if}
 
 {#if failure}
@@ -93,19 +99,6 @@
 {/if}
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.5rem;
-  }
-
   .entries {
     list-style: none;
     margin: 0.5rem 0 0;

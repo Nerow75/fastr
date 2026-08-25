@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { t, formatBytes } from './i18n.js';
   import { announce } from './a11y.js';
   import type { Sender, Transfer } from './transfers.js';
@@ -100,9 +101,13 @@
   }
 </script>
 
-<section aria-labelledby="send-title" class="panel">
-  <h2 id="send-title">{t('transfer.send')}</h2>
-
+<!--
+  The hero, and the only one on this screen. Principle VI puts a ceiling of
+  three actions on sending a file once two devices are paired; a send zone that
+  has to be found among eight identical cards spends the first of them on
+  looking.
+-->
+<Panel id="send" title={t('transfer.send')} tone={targets.length === 0 ? 'quiet' : 'hero'}>
   {#if targets.length === 0}
     <p class="empty">{t('transfer.no_devices')}</p>
   {:else}
@@ -204,22 +209,9 @@
       <p class="note">{t('transfer.keep_tab_open')}</p>
     {/if}
   {/if}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   .field {
     margin-bottom: 0.75rem;
   }
@@ -242,21 +234,28 @@
     color: var(--text);
   }
 
+  /* Deep enough to read as the target it is. This is where the eye should land
+     on a screen with nothing else going on. */
   .dropzone {
-    border: 2px dashed var(--border);
+    border: 2px dashed var(--border-strong);
     border-radius: var(--radius);
-    padding: 1.25rem;
+    padding: 2rem 1.25rem;
     text-align: center;
-    transition: border-color 120ms ease;
+    background: var(--bg);
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease;
   }
 
   .dropzone.dragging {
     border-color: var(--accent);
+    background: var(--accent-soft);
   }
 
   .dropzone p {
     margin: 0 0 0.75rem;
-    color: var(--text-muted);
+    font-size: 1.0625rem;
+    color: var(--text);
   }
 
   .pickers,
@@ -330,7 +329,7 @@
   .note {
     margin: 0.5rem 0 0;
     color: var(--text-muted);
-    font-size: 0.875rem;
+    font-size: var(--size-small);
   }
 
   .warning {

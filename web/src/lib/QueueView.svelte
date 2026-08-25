@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { t, formatBytes } from './i18n.js';
   import { announce } from './a11y.js';
   import { ApiFailure, type Session } from './session.js';
@@ -34,6 +35,19 @@
 
   let busy = $state(false);
   let failure = $state<string | null>(null);
+
+  // A queue with something in it is live state, not a drawer: it opens itself.
+  // An empty one folds away, which is what it is nearly always.
+  let live = $derived(active !== null || entries.length > 0);
+
+  let hint = $derived(
+    [
+      active ? t('transfer.state.running') : '',
+      entries.length > 0 ? t('panel.hint_waiting', { count: entries.length }) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ') || t('queue.empty'),
+  );
 
   function nameOf(transfer: Transfer): string {
     const first = transfer.items[0]?.name ?? transfer.id;
@@ -81,9 +95,14 @@
   }
 </script>
 
-<section aria-labelledby="queue-title" class="panel">
-  <h2 id="queue-title">{t('queue.title')}</h2>
-
+<Panel
+  id="queue"
+  title={t('queue.title')}
+  {hint}
+  tone={live ? 'plain' : 'quiet'}
+  collapsible
+  open={live}
+>
   {#if active}
     <p class="active">
       <span class="running">{t('transfer.state.running')}</span>
@@ -146,22 +165,9 @@
   {#if failure}
     <p class="warning" role="alert">{failure}</p>
   {/if}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   .active {
     display: flex;
     align-items: center;

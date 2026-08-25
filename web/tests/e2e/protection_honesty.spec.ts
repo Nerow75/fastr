@@ -1,4 +1,4 @@
-import { test, expect, pair, openPhone } from './fixtures.js';
+import { test, expect, pair, openPhone, expandAll } from './fixtures.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -61,6 +61,11 @@ const QUALIFICATION = /readable by anyone on this network|readable on this netwo
  * sentence would be a lie.
  */
 async function simpleModeText(page: Page): Promise<string> {
+  // Every drawer opened first. Most of this interface folds away, and a rule
+  // about what the product says would be trivially satisfiable by saying it
+  // somewhere folded.
+  await expandAll(page);
+
   const trusted = page.getByRole('region', { name: 'Trusted mode', exact: true });
   const trustedText = (await trusted.count()) > 0 ? await trusted.innerText() : '';
 

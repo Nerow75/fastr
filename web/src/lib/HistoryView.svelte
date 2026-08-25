@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Panel from './Panel.svelte';
   import { t, formatBytes } from './i18n.js';
   import { announce } from './a11y.js';
   import { ApiFailure, type Session } from './session.js';
@@ -81,15 +82,19 @@
     }
   }
 
+  // A drawer: what happened last week is worth having and is never the reason
+  // somebody opened this page. The count says whether it is worth opening.
+  let hint = $derived(
+    entries.length > 0 ? t('panel.hint_history', { count: entries.length }) : t('history.empty'),
+  );
+
   function when(iso: string): string {
     const at = new Date(iso);
     return Number.isNaN(at.getTime()) ? '' : at.toLocaleString();
   }
 </script>
 
-<section aria-labelledby="history-title" class="panel">
-  <h2 id="history-title">{t('history.title')}</h2>
-
+<Panel id="history" title={t('history.title')} {hint} tone="quiet" collapsible open={false}>
   {#if entries.length === 0}
     <p class="muted">{t('history.empty')}</p>
   {:else}
@@ -143,22 +148,9 @@
   {#if failure}
     <p class="warning" role="alert">{failure}</p>
   {/if}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   .entries {
     list-style: none;
     margin: 0;

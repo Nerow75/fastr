@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import Panel from './Panel.svelte';
   import { t } from './i18n.js';
 
   /**
@@ -123,9 +124,20 @@
   );
 </script>
 
-<section aria-labelledby="invitation-title" class="panel">
-  <h2 id="invitation-title">{t('pairing.invite_title')}</h2>
-
+<!--
+  While no phone is connected this is the whole point of the screen, so it is
+  the hero and it is open. Once one is, connecting another is an occasional
+  errand: it folds away, which also means a live code is not left sitting on a
+  screen anybody can walk past.
+-->
+<Panel
+  id="invitation"
+  title={t('pairing.invite_title')}
+  hint={expanded ? undefined : t('panel.hint_invitation')}
+  tone={expanded ? 'hero' : 'quiet'}
+  collapsible={!expanded}
+  open={expanded}
+>
   {#if !revealed}
     <p class="hint">{t('pairing.invite_hint')}</p>
     <button type="button" onclick={load} disabled={loading}>
@@ -184,22 +196,9 @@
       <button type="button" class="secondary" onclick={hide}>{t('pairing.invite_done')}</button>
     {/if}
   {/if}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   .layout {
     display: flex;
     flex-wrap: wrap;

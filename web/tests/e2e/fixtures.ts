@@ -1,4 +1,4 @@
-import { test as base, expect, type Browser, type Page } from '@playwright/test';
+import { test as base, expect, type Browser, type Locator, type Page } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -151,6 +151,35 @@ function isLoopback(hostPort: string): boolean {
 }
 
 /**
+ * Unfolds a panel, and leaves an unfolded one alone.
+ *
+ * The interface shows one thing to do — the send zone — and folds everything
+ * else behind its own title, so a test that drives a drawer has to open it the
+ * way a person does: by pressing the title. Panels that do not fold, and ones
+ * already open, are left exactly as they are.
+ */
+export async function expand(region: Locator): Promise<void> {
+  const details = region.locator('details').first();
+  if ((await details.count()) === 0) return;
+  if (await details.evaluate((node) => (node as HTMLDetailsElement).open)) return;
+  await region.locator('summary').first().click();
+}
+
+/**
+ * Unfolds every panel on a page.
+ *
+ * For the audits — accessibility and translation coverage — which read the
+ * whole screen and would otherwise stop seeing anything that folds. Folding is
+ * a presentation decision; it must not quietly narrow what those two check.
+ */
+export async function expandAll(page: Page): Promise<void> {
+  const summaries = page.locator('details:not([open]) > summary');
+  for (let i = (await summaries.count()) - 1; i >= 0; i--) {
+    await summaries.nth(i).click();
+  }
+}
+
+/**
  * Opens the computer's own page and reads the pairing code it displays.
  *
  * Read from the interface rather than from the binary's output on purpose: that
@@ -170,8 +199,11 @@ export async function readPairingCode(page: Page): Promise<string> {
   // Two legitimate states: showing a code while no phone is connected, or
   // offering to fetch one once there is. Which one is in front can change under
   // us — a phone finishing its pairing collapses the panel — so the whole check
-  // retries rather than deciding once and hoping.
+  // retries rather than deciding once and hoping. Once a device is connected
+  // the panel is also folded away, so it is unfolded first: the reveal button
+  // is inside it.
   await expect(async () => {
+    await expand(panel);
     if (await reveal.isVisible()) await reveal.click();
     await expect(code).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });

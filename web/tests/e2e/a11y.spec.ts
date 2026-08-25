@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { test, expect, pair, openPhone, openDesktop } from './fixtures.js';
+import { test, expect, pair, openPhone, openDesktop, expandAll } from './fixtures.js';
 import type { Page } from '@playwright/test';
 
 /**
@@ -82,11 +82,15 @@ test.describe('@a11y the essential flows', () => {
     await pair(desktop, phone, 'Test Phone');
 
     // Every panel the paired interface renders: devices, queue, transfers,
-    // history, and the trusted-mode walkthrough.
+    // history, and the trusted-mode walkthrough. Unfolded first — the drawers
+    // are closed by default, and axe cannot audit what the page is not
+    // rendering. Folding is a presentation decision and must not be a way to
+    // shrink this gate.
     for (const [name, page] of [
       ['the computer', desktop],
       ['the phone', phone],
     ] as const) {
+      await expandAll(page);
       const violations = await violationsOn(page);
       expect(violations, `${name}, once paired:\n${violations.join('\n')}`).toEqual([]);
     }

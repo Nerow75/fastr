@@ -8,6 +8,81 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-25 — One thing to do, and drawers for the rest
+
+Tasks: 149 → 150 of 161. T151, the interface.
+
+Nothing was wrong with any panel taken on its own. The problem was that there
+were nine of them and every one was drawn exactly the same way: the same border,
+the same radius, the same 1rem heading, each component carrying its own copy of
+that CSS. A page built that way has no hierarchy at all — it cannot say what it
+is for, because everything on it claims the same importance.
+
+What that cost is specific rather than aesthetic. **Principle VI puts a ceiling
+of three actions on sending a file once two devices are paired**, and the send
+zone sat fifth in a stack of identical cards. Finding it spent an action the
+principle does not budget for.
+
+### One component owns the decision now
+
+`web/src/lib/Panel.svelte` replaces the copy in all nine. It takes a `tone` —
+`hero`, `plain`, `quiet`, `urgent` — and that is where the hierarchy lives, in
+one file, instead of being re-decided by whoever wrote the next panel. The
+second half is folding: anything that is not the current task sits behind its
+own title with one line of state next to it, so the resting screen is one thing
+to do and six lines saying where to look.
+
+The hero is whichever of two things the screen is actually for. With no phone
+connected it is the invitation, because connecting one is the only thing worth
+doing; with one connected it is the send zone and the invitation folds down into
+the drawers, which also stops a live pairing code sitting on a screen anybody
+can walk past.
+
+### What is not allowed to fold
+
+Three things, and each for a reason that outranks tidiness.
+
+- **The protection notice.** Principle V makes stating what is and is not
+  protected a duty, and SC-016a checks it on every screen where a transfer is
+  set up or shown. It sits directly under the send zone, which is both places at
+  once. It does not fold and it is not dismissible.
+- **A device waiting for approval.** Somebody on the other side of the room is
+  looking at a spinner. It outranks even the send zone.
+- **Anything live.** A running transfer, a queue with something in it, a file
+  passing through this machine: each opens itself and stays open while it holds
+  something, and folds away when it does not.
+
+### The audits had to be told about folding
+
+This is the part that would have rotted quietly. `a11y.spec.ts` runs axe over
+the whole page, `i18n_coverage.spec.ts` reads every visible string, and
+`protection_honesty.spec.ts` reads every sentence about files. A folded panel
+renders nothing, so all three would have gone on passing while checking half the
+interface — and the honesty rule in particular would have become satisfiable by
+saying the wrong thing somewhere folded.
+
+All three now unfold every panel before reading the screen. A presentation
+decision must not be a way to shrink a gate.
+
+### Cost
+
+About 4 kB of CSS, one new component, nine components losing their duplicated
+card styles, and ten catalogue keys in both languages for the state lines. Three
+tests learned to open a drawer: the trusted-mode walkthrough is one now, and
+`readPairingCode` unfolds the invitation before looking for the reveal button.
+
+### Verified
+
+- 23 browser tests on Chromium, the full Go suite, `svelte-check` and `eslint`
+  clean. The accessibility gate passes with **every drawer open**, which is
+  strictly more than it audited before.
+- Read off screenshots rather than assumed: the idle desktop, the desktop before
+  pairing, a transfer in flight, the phone, and dark mode. The empty
+  `Transfers` panel was a full-height card saying nothing in the first pass;
+  that is what the screenshots were for.
+
+---
+
 ## 2026-08-24 — The pairing code stops travelling
 
 Tasks: 148 → 149 of 160. T137, the one thing the README said blocked a release.

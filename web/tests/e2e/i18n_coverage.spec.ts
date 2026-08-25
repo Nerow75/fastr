@@ -1,4 +1,4 @@
-import { test, expect, pair, openDesktop, LABELS } from './fixtures.js';
+import { test, expect, pair, openDesktop, expandAll, LABELS } from './fixtures.js';
 import type { Browser, Page } from '@playwright/test';
 
 /**
@@ -95,6 +95,10 @@ test.describe('what the interface renders', () => {
         [`the computer (${locale})`, desktop],
         [`the phone (${locale})`, phone],
       ] as const) {
+        // Every drawer opened first. This audit reads what is on screen, and a
+        // panel that folds away renders nothing at all — so without this, half
+        // the interface would quietly stop being checked.
+        await expandAll(page);
         const text = await visibleText(page);
 
         const keys = offendingLines(text, KEY_PATTERN);

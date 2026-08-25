@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { t } from './i18n.js';
   import { announce } from './a11y.js';
   import { ApiFailure, type Session } from './session.js';
@@ -117,15 +118,25 @@
     }
   }
 
+  // Two counts, because they answer two different questions: how many machines
+  // this computer has a lasting relationship with, and how many of them have a
+  // page open right now. Only the second can be sent to.
+  let hint = $derived(
+    devices.length + discovered.length === 0
+      ? t('device.empty_short')
+      : t('panel.hint_devices', {
+          paired: devices.filter((d) => d.paired).length,
+          connected: devices.filter((d) => d.connected).length,
+        }),
+  );
+
   function reachability(device: DiscoveredDevice): string {
     if (device.reachable === undefined) return t('device.checking');
     return device.reachable ? t('device.reachable') : t('device.unreachable');
   }
 </script>
 
-<section aria-labelledby="devices-title" class="panel">
-  <h2 id="devices-title">{t('device.list_title')}</h2>
-
+<Panel id="devices" title={t('device.list_title')} {hint} tone="quiet" collapsible open={false}>
   {#if devices.length === 0 && discovered.length === 0}
     <p class="muted">{t('device.empty')}</p>
   {/if}
@@ -233,22 +244,9 @@
       <p class="warning" role="alert">{failure}</p>
     {/if}
   </form>
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   h3 {
     font-size: 0.875rem;
     font-weight: 600;

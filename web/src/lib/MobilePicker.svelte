@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { t, formatBytes, formatDuration, formatRate } from './i18n.js';
   import { announce } from './a11y.js';
   import type { Uploader, UploadProgress } from './upload.js';
@@ -210,9 +211,8 @@
   }
 </script>
 
-<section aria-labelledby="mobile-send-title" class="panel">
-  <h2 id="mobile-send-title">{t('transfer.send')}</h2>
-
+<!-- The phone's hero, and on a phone it is very nearly the whole screen. -->
+<Panel id="mobile-send" title={t('transfer.send')} tone="hero">
   {#if targetDeviceId === ''}
     <p class="empty">{t('transfer.no_computer')}</p>
   {:else}
@@ -357,22 +357,9 @@
       <p class="note">{t('transfer.keep_screen_on')}</p>
     {/if}
   {/if}
-</section>
+</Panel>
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   .target {
     margin: 0 0 0.75rem;
     font-size: 0.875rem;

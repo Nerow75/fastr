@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test, expect, pair, openPhone } from './fixtures.js';
+import { test, expect, pair, openPhone, expand } from './fixtures.js';
 
 /**
  * User Story 1, end to end: scan the code, pair, drop a file on the computer,
@@ -56,6 +56,15 @@ test.describe('the first transfer', () => {
     // The phone's pairing spent that code, so the panel must stop showing it.
     // It used to keep the spent digits up, and the next person to try them was
     // told the code was already used, with no way forward.
+    //
+    // It also folds away at this point: with a phone connected, connecting a
+    // second one is an errand rather than the task, and a live code left on
+    // screen is an invitation to whoever walks past the desk. So the digits
+    // must be gone from the page whether the panel is open or shut, and what
+    // is behind it is the offer to fetch a fresh one.
+    await expect(invitation.locator('.code')).toHaveCount(0, { timeout: 20_000 });
+
+    await expand(invitation);
     await expect(
       invitation.getByRole('button', { name: 'Connect another device', exact: true }),
     ).toBeVisible({ timeout: 20_000 });

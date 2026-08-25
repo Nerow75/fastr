@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { t } from './i18n.js';
   import { announce } from './a11y.js';
   import { ApiFailure, type Session } from './session.js';
@@ -102,9 +103,20 @@
 </script>
 
 {#if status?.available}
-  <section aria-labelledby="trusted-title" class="panel">
-    <h2 id="trusted-title">{t('trusted.title')}</h2>
-
+  <!--
+    Folded away by default. Setting up trusted mode is a real decision made
+    once, not something anybody needs in front of them while sending a file —
+    and the honesty it owes the user is carried by the protection notice, which
+    is never foldable.
+  -->
+  <Panel
+    id="trusted"
+    title={t('trusted.title')}
+    hint={status.ready ? t('panel.hint_trusted_ready') : t('panel.hint_trusted_off')}
+    tone="quiet"
+    collapsible
+    open={false}
+  >
     <!--
       What it buys and what it costs, in that order, before any button. The
       second half is not fine print: it is the reason this is opt-in.
@@ -174,23 +186,10 @@
     {#if failure}
       <p class="warning" role="alert">{failure}</p>
     {/if}
-  </section>
+  </Panel>
 {/if}
 
 <style>
-  .panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.5rem;
-  }
-
   p {
     margin: 0 0 0.5rem;
     font-size: 0.9375rem;

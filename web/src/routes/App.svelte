@@ -14,6 +14,7 @@
   import { t, negotiate, setLanguage, formatApiError } from '../lib/i18n.js';
   import { Sender, type Transfer } from '../lib/transfers.js';
   import { Uploader } from '../lib/upload.js';
+  import Panel from '../lib/Panel.svelte';
   import PairingScreen from '../lib/PairingScreen.svelte';
   import ConnectionInvitation from '../lib/ConnectionInvitation.svelte';
   import PendingDevices from '../lib/PendingDevices.svelte';
@@ -469,19 +470,21 @@
 
   {#if desktop}
     <!--
-      FR-002: the address and the QR that encodes it, with the code to type on
-      the phone. Expanded until a phone is actually connected, because until
-      then it is the only thing on this screen worth doing.
-
-      Above the approval prompt because it comes first in time — a device has to
-      be invited before there is anything to approve.
-    -->
-    <ConnectionInvitation expanded={!hasPairedPeer} onerror={onPairingError} />
-    <!--
-      A device waiting to be let in still needs an answer, and it renders
-      nothing when nothing waits.
+      A device is waiting to be let in. It outranks everything below, including
+      the send zone, because somebody on the other side of the room is looking
+      at a spinner. It renders nothing when nothing is waiting.
     -->
     <PendingDevices revision={pendingRevision} />
+  {/if}
+
+  <!--
+    FR-002: the address, the QR that encodes it, and the code to type on the
+    phone. Until a phone is connected this is the only thing on the screen worth
+    doing, so it is the hero and it sits above everything. Once one is, it moves
+    down into the drawers as "connect another".
+  -->
+  {#if desktop && !hasPairedPeer}
+    <ConnectionInvitation expanded onerror={onPairingError} />
   {/if}
 
   {#if !session}
@@ -494,33 +497,11 @@
     {/if}
   {:else}
     <!--
-      Constitution v2.0.1, Principle V: the interface must never claim a
-      protection it does not provide, and must say plainly that simple-mode
-      content is readable by anyone on the same network. This notice is not
-      decoration and is not dismissible.
-    -->
-    <ProtectionNotice mode="simple" />
-
-    <!--
+      The hero of a connected screen, and the reason anybody opened the page.
       The desktop drops files into a pipe; the phone pushes them to a file.
       Which panel appears follows from which device this is, not from a
       preference, because only one of the two mechanisms works on each.
     -->
-    <!--
-      Only the desktop. Discovery is computer to computer — a phone exists
-      through its browser and never advertises — and adding a device by address
-      is restricted to loopback for the same reason every other trust change is.
-    -->
-    {#if desktop && session}
-      <DeviceList
-        {session}
-        devices={peers}
-        {discovered}
-        {discovery}
-        onchanged={() => session && loadDevices(session)}
-      />
-    {/if}
-
     {#if desktop && sender}
       <SendPanel devices={peers} {sender} onsent={noteTransfer} onerror={onPairingError} />
     {:else if !desktop && uploader}
@@ -536,38 +517,31 @@
     {/if}
 
     <!--
-      The queue and the record of what happened. Both are the desktop's: the
-      queue is this machine's single slot, and the history is what happened
-      here, including with a phone that is no longer in the house.
+      Constitution v2.0.1, Principle V: the interface must never claim a
+      protection it does not provide, and must say plainly that simple-mode
+      content is readable by anyone on the same network. Directly under the send
+      zone and directly above the transfers, which is both places SC-016a names:
+      where a transfer is set up, and where one is shown. It is not decoration,
+      it is not dismissible, and nothing folds it away.
     -->
+    <ProtectionNotice mode="simple" />
+
     <!--
-      What is passing through this machine between two other devices. It renders
-      nothing unless something is, which is almost always. FR-056.
+      What is moving right now. Live state, so while anything is moving it is
+      open and cannot be folded. Empty, it is a folded line: an empty panel the
+      height of the send zone tells the reader nothing and pushes everything
+      else down the page.
     -->
-    <!--
-      Trusted mode, set up from the computer. It renders nothing when the build
-      cannot do it, and it explains what it buys and what it costs before it
-      asks for anything. FR-047d.
-    -->
-    {#if desktop && session}
-      <TrustedSetup {session} revision={pairingRevision} />
-    {/if}
-
-    {#if desktop && session}
-      <RelayView {session} revision={historyRevision} oncancel={cancelTransfer} />
-    {/if}
-
-    {#if desktop && session}
-      <QueueView
-        {session}
-        entries={queued}
-        active={runningNow}
-        onchanged={() => session && reconcile(session)}
-      />
-    {/if}
-
-    <section aria-labelledby="transfers-title">
-      <h2 id="transfers-title">{t('nav.transfers')}</h2>
+    <Panel
+      id="transfers"
+      title={t('nav.transfers')}
+      hint={transfers.length > 0
+        ? t('panel.hint_transfers', { count: transfers.length })
+        : t('panel.hint_idle')}
+      tone={transfers.length > 0 ? 'plain' : 'quiet'}
+      collapsible={transfers.length === 0}
+      open={transfers.length > 0}
+    >
       {#if transfers.length === 0}
         <p class="muted">{t('transfer.none')}</p>
       {:else}
@@ -581,7 +555,56 @@
           />
         {/each}
       {/if}
-    </section>
+    </Panel>
+
+    <!--
+      This machine's single slot, and what is passing through it between two
+      other devices. Both open themselves when they hold something and fold away
+      when they do not. FR-056.
+    -->
+    {#if desktop && session}
+      <QueueView
+        {session}
+        entries={queued}
+        active={runningNow}
+        onchanged={() => session && reconcile(session)}
+      />
+
+      <RelayView {session} revision={historyRevision} oncancel={cancelTransfer} />
+    {/if}
+
+    <!--
+      The drawers. Everything below here is somewhere to look rather than
+      something to do, so all of it is folded until it is wanted: connecting a
+      further device, the machines on this network, trusted mode, and what
+      happened before today.
+    -->
+    {#if desktop && hasPairedPeer}
+      <ConnectionInvitation expanded={false} onerror={onPairingError} />
+    {/if}
+
+    {#if desktop && session}
+      <!--
+        Only the desktop. Discovery is computer to computer — a phone exists
+        through its browser and never advertises — and adding a device by
+        address is restricted to loopback for the same reason every other trust
+        change is.
+      -->
+      <DeviceList
+        {session}
+        devices={peers}
+        {discovered}
+        {discovery}
+        onchanged={() => session && loadDevices(session)}
+      />
+
+      <!--
+        Trusted mode, set up from the computer. It renders nothing when the
+        build cannot do it, and it explains what it buys and what it costs
+        before it asks for anything. FR-047d.
+      -->
+      <TrustedSetup {session} revision={pairingRevision} />
+    {/if}
 
     {#if session}
       <HistoryView {session} canClear={desktop} revision={historyRevision} />
@@ -595,15 +618,20 @@
     align-items: baseline;
     justify-content: space-between;
     gap: var(--gap);
-    max-width: 60rem;
+    max-width: var(--column);
     margin: 0 auto;
-    padding: var(--gap) var(--gap) 0;
+    padding: var(--gap-lg) var(--gap) 0;
   }
 
+  /* The product's name, and the smallest thing on the page that is allowed to
+     be bigger than a panel title. It is a label, not a heading anybody needs to
+     read twice. */
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.125rem;
+    font-weight: 600;
     margin: 0;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
+    color: var(--text-muted);
   }
 
   .status {
@@ -628,20 +656,21 @@
     background: var(--accent);
   }
 
+  /*
+   * One column, narrow enough to read down. The page is a single stack in
+   * priority order — what needs an answer, what to do, what is happening, then
+   * the drawers — so width here would only push the send zone further from the
+   * eye.
+   */
   main {
-    max-width: 60rem;
+    max-width: var(--column);
     margin: 0 auto;
-    padding: var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: var(--gap) 0 0.5rem;
+    padding: var(--gap) var(--gap) var(--gap-lg);
   }
 
   .muted {
     color: var(--text-muted);
-    font-size: 0.875rem;
+    font-size: var(--size-small);
   }
 
   .error {
@@ -649,7 +678,7 @@
     border-radius: var(--radius);
     padding: 0.75rem 1rem;
     color: var(--danger);
-    background: var(--surface);
+    background: var(--surface-raised);
   }
 
   .notice {
@@ -660,7 +689,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.75rem 1rem;
-    background: var(--surface);
+    background: var(--surface-raised);
     font-size: 0.9375rem;
   }
 

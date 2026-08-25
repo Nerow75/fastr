@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Panel from './Panel.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { t, formatDateTime } from './i18n.js';
   import { announce } from './a11y.js';
@@ -94,9 +95,9 @@
 </script>
 
 {#if requests.length > 0}
-  <section aria-labelledby="pending-title" class="panel">
-    <h2 id="pending-title">{t('pairing.approve_title')}</h2>
-
+  <!-- Somebody is waiting on an answer, so this outranks even the send zone and
+       is never folded. It renders nothing when nothing is waiting. -->
+  <Panel id="pending" title={t('pairing.approve_title')} tone="urgent">
     {#if failure}
       <p class="error" role="alert">{failure}</p>
     {/if}
@@ -139,23 +140,10 @@
         </li>
       {/each}
     </ul>
-  </section>
+  </Panel>
 {/if}
 
 <style>
-  .panel {
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    background: var(--surface);
-    padding: 1rem;
-    margin: 0 0 var(--gap);
-  }
-
-  h2 {
-    font-size: 1rem;
-    margin: 0 0 0.75rem;
-  }
-
   ul {
     list-style: none;
     margin: 0;
