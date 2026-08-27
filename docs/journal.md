@@ -78,6 +78,31 @@ They read the list back as SDDL rather than walking the ACL, because
 `x/sys/windows` does not export the structure's entry count — and because a
 failure then prints something a person can read.
 
+### The first push was red, and the test was the thing that was wrong
+
+`TestTheAuthorityKeyIsReachableOnlyByThisUser` and its two siblings failed on
+`windows-latest` while passing here. The implementation was right on both: the
+list named exactly one account and that account was the current user. The
+comparison was wrong.
+
+**SDDL does not always write an account as a raw SID.** Some come back as a
+two-letter alias, and which form appears depends on the account rather than on
+anything this code does. A developer account is `S-1-5-21-…-1001` and prints
+in full; the CI runner runs as the built-in Administrator, `S-1-5-21-…-500`,
+which SDDL writes `LA`. The test compared strings, so it compared spellings
+instead of identities.
+
+`daclOf` now resolves every token through `StringToSid`, which takes both forms,
+and the assertion is `sid.Equals(me)`. The raw token is kept alongside so a
+failure still names something a person can look up.
+
+This was a known risk when the test was written and was accepted rather than
+handled, on the reasoning that the account was unlikely to be a well-known one.
+The reasoning was fine and the conclusion was wrong: an assertion that depends
+on how an operating system chooses to spell something should compare the thing,
+not the spelling. `TestTheListReaderUnderstandsBothSpellings` now pins both
+forms, including the exact alias that broke the build.
+
 ### The budget nobody had ever measured on Windows
 
 T145 read `/proc`, so SC-018 was a criterion checked on one of the two supported
@@ -184,6 +209,7 @@ file.
 - 396 Go tests pass on Windows 11 with go1.27.0, 5 skipped, none failing. Up
   from 393 passing and 7 skipped: two of the skips are now measurements.
 - The three access-list tests fail 3/3 with the restriction neutered.
+- Both SDDL spellings resolve to the same account, `LA` included.
 - The Windows memory reader agrees with `Get-Process` to the megabyte.
 - `go build -trimpath ./...` clean; `go vet ./...` clean for both `GOOS`.
 - `golangci-lint` clean under `GOOS=windows` and `GOOS=linux`.
