@@ -118,6 +118,13 @@ func Create(dir string) (*Authority, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create trust directory: %w", err)
 	}
+	// And 0700 means nothing on Windows, which decides access by a list rather
+	// than by permission bits. Restricted before anything is written into it,
+	// so the key below inherits the restriction rather than being created
+	// readable and tightened a moment later. A no-op on POSIX.
+	if err := restrictToOwner(dir); err != nil {
+		return nil, err
+	}
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -172,8 +179,15 @@ func Create(dir string) (*Authority, error) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 	// 0600, and never anywhere else. This key is the whole of the trust a user
 	// extends when they install the certificate on their phone.
-	if err := os.WriteFile(filepath.Join(dir, caKeyFile), keyPEM, 0o600); err != nil {
+	keyPath := filepath.Join(dir, caKeyFile)
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("write authority key: %w", err)
+	}
+	// Stated on the key itself rather than left to what it inherited, because
+	// the directory's entry is the only thing standing between this key and
+	// every other account named on %LOCALAPPDATA%.
+	if err := restrictToOwner(keyPath); err != nil {
+		return nil, err
 	}
 
 	certificate, err := parseCertificate(certPEM)
@@ -187,12 +201,40 @@ func Create(dir string) (*Authority, error) {
 func LoadOrCreate(dir string) (*Authority, error) {
 	existing, err := Load(dir)
 	if err == nil {
+		// An authority written by a build that set no access list is repaired
+		// here rather than left as it was found. This is the call the trusted
+		// mode setup makes, which is the moment the user is being told the key
+		// stays on their machine; `Load` stays a read, and does not.
+		if err := existing.restrict(); err != nil {
+			return nil, err
+		}
 		return existing, nil
 	}
 	if !errors.Is(err, ErrNoAuthority) {
 		return nil, err
 	}
 	return Create(dir)
+}
+
+// restrict re-states who may reach the directory and the keys inside it.
+//
+// The certificates are not in the list: one of them is handed out to every
+// phone that sets up trusted mode, so restricting it would protect nothing and
+// suggest it was a secret.
+func (a *Authority) restrict() error {
+	if err := restrictToOwner(a.Dir); err != nil {
+		return err
+	}
+	for _, name := range []string{caKeyFile, tlsKeyFile} {
+		path := filepath.Join(a.Dir, name)
+		if _, err := os.Stat(path); err != nil {
+			continue // no server key yet, which is the ordinary case before the first issue
+		}
+		if err := restrictToOwner(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CertificatePEM is what the user installs on their phone.

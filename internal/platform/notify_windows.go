@@ -63,6 +63,14 @@ func notify(ctx context.Context, n Notification) error {
 		return fmt.Errorf("%w: powershell is not available", ErrNotificationsUnavailable)
 	}
 
+	// path comes from LookPath, not from input, and the script is a constant.
+	// Nothing the user typed is ever concatenated into it: the title and the
+	// body reach PowerShell through the environment below and are read there as
+	// `$env:` values, so a filename containing a quote or a semicolon is text
+	// rather than another statement. This is the same argument
+	// `notify_linux.go` makes, and it holds harder here because a shell is
+	// genuinely involved.
+	//nolint:gosec // fixed binary, constant script, user text passed by environment
 	cmd := exec.CommandContext(ctx, path,
 		"-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
 		"-ExecutionPolicy", "Bypass", "-Command", toastScript)

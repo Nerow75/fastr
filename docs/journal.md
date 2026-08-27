@@ -8,6 +8,198 @@ for what a future session needs in order to pick the work back up.
 
 ---
 
+## 2026-08-27 — The key Windows was not actually protecting
+
+Tasks: 150 → 153 of 161. T137b, the Windows half of T145, and two lines that
+had been done for four days without being ticked.
+
+`ca.go` wrote the authority's private key with mode 0600 and had done since
+T128. On Windows that number is decoration. The platform does not implement
+POSIX permission bits: the file reports 0666 back, and who may open it is
+decided by an access control list this code never set. What the key got instead
+was whatever it inherited from its parent directory.
+
+The task said that was "user-only on a default installation" and therefore
+probably fine. **It is worth seeing what "probably fine" measured on a real
+machine.** Neutering the fix and reading the inherited list back on this
+Windows 11 laptop gives four accounts on the key: SYSTEM, Administrators, and
+*two other user accounts on this machine*. That is a temporary directory rather
+than `%LOCALAPPDATA%`, so it is not the number a user would get — but it is
+exactly the shape of the risk, on the one artefact where anything holding it can
+impersonate any site to every phone that installed the authority.
+
+### Protected, or it grants more than it names
+
+`restrict_windows.go` writes the list explicitly, with a POSIX sibling that
+returns nil because the mode bits there already are the restriction.
+
+The load-bearing flag is `PROTECTED_DACL_SECURITY_INFORMATION`. Without it the
+inherited entries are merged back into whatever is set, and the result grants
+strictly more than it names — the failing run above is what that looks like.
+With it, they are dropped.
+
+What this does **not** do is put the key beyond an administrator, and nothing on
+Windows can: an account holding `SeTakeOwnershipPrivilege` rewrites any list on
+the machine. It removes every *other* account that happened to be named on the
+parent.
+
+### Two keys, and a directory
+
+The task named the authority's key. `issue.go` writes `server.key` with the same
+0600 and the same non-effect, so it is covered too: it is short-lived rather
+than permanent, but anything holding it can serve this machine's address to a
+phone that already trusts the authority.
+
+The directory's entry is inheritable, so anything written there later starts out
+restricted instead of depending on whoever writes it next to remember. Each key
+still states its own, because inheritance is the fallback and not the guarantee.
+
+`LoadOrCreate` repairs an authority left behind by a build that set no list.
+That call, and not `Load`, because it is the one trusted-mode setup makes — the
+moment the user is being told the key stays on their machine. `Load` remains a
+read and does not write.
+
+### The tests had to be told what the property is
+
+The first version asserted the list held exactly one entry and failed on the
+directory, which holds two: Windows splits an inheritable entry into one that
+applies to the directory and one marked inherit-only for its children. Both name
+this user. **Counting entries was asserting how Windows chose to write the list
+down; the property is that every entry names this user**, and that is what it
+checks now.
+
+The repair test widens the list to include the world group and asserts it
+widened before repairing it. A repair test that starts from an already-narrow
+list passes whether or not anything repairs anything.
+
+All three were checked to fail with the fix neutered and pass with it.
+
+They read the list back as SDDL rather than walking the ACL, because
+`x/sys/windows` does not export the structure's entry count — and because a
+failure then prints something a person can read.
+
+### The budget nobody had ever measured on Windows
+
+T145 read `/proc`, so SC-018 was a criterion checked on one of the two supported
+systems and asserted on the other. The Windows half is `GetProcessTimes` and
+`K32GetProcessMemoryInfo` against a process handle, in a file beside the Linux
+one.
+
+`K32GetProcessMemoryInfo` is declared here rather than imported, because
+`x/sys/windows` does not export it — it has `GetProcessWorkingSetSizeEx`, which
+reports the *limits* on a working set rather than what a process is using, and
+those answer different questions. Twenty lines against a dependency for one
+function, which the budget in research.md would not have had.
+
+The counters are chosen so the two platforms are held to comparable numbers:
+kernel plus user time against `/proc/<pid>/stat`'s system plus user ticks, and
+`WorkingSetSize` against `VmRSS`. `PagefileUsage` was the tempting alternative
+and would have measured something Linux is not measuring — for a parity
+criterion, two numbers that are not comparable are worse than one number.
+
+**Windows reads 0 ms of processor time across twelve idle seconds and 18 MB
+resident**, against budgets of 1% and 100 MB. Cross-checked against
+`Get-Process`, which reports the same 18 MB to the megabyte; the reader was not
+trusted on its own, because the first run of a freshly built binary reported
+61 MB and that number had to be explained before anything could be written down.
+It was a cold start: the loader mapping in a 15 MB executable written seconds
+earlier. Three subsequent runs give 18 MB, flat. Worth knowing, because CI always
+launches a freshly built binary and may well see the higher figure — still
+inside the budget, on a thinner margin than Linux's 11 MB.
+
+### The test was passing on a process that was not running
+
+Found by the number being wrong, which is the argument for cross-checking it.
+Before the web bundle existed on this machine the binary refused to start, the
+child exited within a second, and the test reported **0 ms and 0 MB: a perfect
+score against both budgets.**
+
+`idle_budget_test.go` already worried about exactly this shape of failure — "a
+reader that always returned zero would report a perfect idle score for a program
+pegging a core, and the test above would be worse than none" — and proved the
+*reader* against a busy loop. It never proved the *subject*. So the one thing it
+was built to avoid was the thing it did.
+
+Three changes, none of them Windows-specific:
+
+- the instance's output is kept rather than discarded, because what it said
+  before stopping is the only useful thing to print;
+- it is asserted alive at both ends of the measurement window, with that output
+  in the failure;
+- a memory reading under a megabyte is an error. Nothing running the Go runtime
+  is that small, so that number means a broken reader, and a broken reader
+  passes the budget with room to spare.
+
+There is no third implementation and no fallback stub. fastr ships for two
+systems, `internal/platform` has files for exactly those two, and a package that
+cannot build for a third would fail there long before reaching a stub here. One
+was written and then deleted for claiming a support that does not exist.
+
+### The Lint job had never seen a line of Windows code
+
+Found while running the gate locally for the first time, which is the point of
+running it locally. The `Lint` job runs on `ubuntu-latest` with the default
+`GOOS`, and a linter type-checks one `GOOS` at a time — so every
+`//go:build windows` file in the repository was invisible to it. Seven of them,
+now including the one that restricts the authority's private key. **The job was
+green because it was not looking.** Principle IV makes a failure on either
+system block the release, and this job was enforcing that on one.
+
+Three findings had been sitting there, none of them new:
+
+- two `errcheck` on `defer k.Close()` in `platform_windows.go`, where the rest
+  of the tree writes `defer func() { _ = x.Close() }()`;
+- one gosec `G204` on the PowerShell call in `notify_windows.go`. The argument
+  against it is already written, one file away: `notify_linux.go` carries
+  `//nolint:gosec // fixed binary, argv arguments, no shell` for the same shape
+  of call. It holds harder on Windows, where a shell genuinely is involved and
+  the user's text reaches it through the environment rather than the command
+  line — which is why the script reads `$env:` values. The Windows file simply
+  never got the comment, because nothing ever asked it for one.
+
+The job now runs a second pass with `GOOS: windows`. No Windows runner is
+needed: the linter cross-checks from Linux the same way the compiler does.
+
+### Two things about this machine, not about the code
+
+Both cost time before they were understood, so they are written down.
+
+**Smart App Control is enforced on this laptop** and refuses to launch the
+integration package's test binary out of the build cache: `go test
+./test/integration/` dies with "a policy has blocked this file" before a single
+test runs. Every other package is fine. Compiling it to a normal location —
+`go test -c -o bin/integration.test.exe ./test/integration/` — and running that
+works.
+
+**The gofmt findings `golangci-lint` reports here are not real**, and the
+giveaway is that the list changes between runs. The tree is checked out with
+`core.autocrlf=true` and carries no `.gitattributes`, so every file on disk has
+CRLF endings. Copying all 122 Go files with LF endings and running `gofmt -l`
+over them reports nothing. Worth remembering when writing a Go file from a
+Windows editor, too: left as it lands, it shows up in `git diff` as the whole
+file.
+
+### Verified
+
+- 396 Go tests pass on Windows 11 with go1.27.0, 5 skipped, none failing. Up
+  from 393 passing and 7 skipped: two of the skips are now measurements.
+- The three access-list tests fail 3/3 with the restriction neutered.
+- The Windows memory reader agrees with `Get-Process` to the megabyte.
+- `go build -trimpath ./...` clean; `go vet ./...` clean for both `GOOS`.
+- `golangci-lint` clean under `GOOS=windows` and `GOOS=linux`.
+- Not run here: the browser suite, and anything needing a Linux runner. Neither
+  is touched by this change.
+
+### Cost
+
+One new platform file and a no-op sibling, three calls in `ca.go` and
+`issue.go`, one new test file, three one-line fixes in `internal/platform`, one
+step in the CI workflow, and the idle budget split into a shared test with a
+per-platform accounting file. No new dependency: `golang.org/x/sys` was already
+direct, for the instance lock.
+
+---
+
 ## 2026-08-25 — One thing to do, and drawers for the rest
 
 Tasks: 149 → 150 of 161. T151, the interface.
@@ -865,12 +1057,10 @@ test. *(Done on 2026-08-22; see the entry above.)*
 
 **Known gaps**
 
-- **T087b.** A page learns of a transfer only from the event announcing it, so
-  anything declared while it was not listening stays invisible to it forever. A
-  phone that reloads mid-transfer loses sight of it. Fixing it properly needs
-  `/api/queue`, which does not exist yet. `web/tests/e2e/fixtures.ts` waits for
-  the event stream before sending purely to step around this; delete that wait
-  when T087b lands.
+- ~~**T087b.** A page learns of a transfer only from the event announcing it.~~
+  Closed with User Story 5: `/api/queue` exists, `App.svelte` reconciles against
+  it on connect, and the wait in `web/tests/e2e/fixtures.ts` that stepped around
+  it is gone.
 - ~~**The `Lint` CI job has never actually run.**~~ Fixed 2026-08-23; see that
   entry. It runs, and it is clean.
 - ~~**Prettier** wants three files reformatted.~~ Done; the tree is clean.

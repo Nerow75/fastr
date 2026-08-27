@@ -134,8 +134,16 @@ func (a *Authority) Issue(addresses []string) (*Certificate, error) {
 	if err := os.WriteFile(filepath.Join(a.Dir, tlsCertFile), certPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("write certificate: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(a.Dir, tlsKeyFile), keyPEM, 0o600); err != nil {
+	keyPath := filepath.Join(a.Dir, tlsKeyFile)
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("write certificate key: %w", err)
+	}
+	// The same restriction as the authority's key, for the same reason: 0600 is
+	// not enforced on Windows. This key is short-lived rather than permanent,
+	// so it is less of a prize — but anything holding it can serve this
+	// machine's address to a phone that already trusts the authority.
+	if err := restrictToOwner(keyPath); err != nil {
+		return nil, err
 	}
 
 	return &Certificate{

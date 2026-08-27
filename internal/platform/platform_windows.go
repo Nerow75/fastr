@@ -103,7 +103,7 @@ func (windowsPlatform) SetAutostart(enabled bool, executable string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 
 	if !enabled {
 		err := k.DeleteValue(runValueName)
@@ -123,7 +123,7 @@ func (windowsPlatform) AutostartEnabled() (bool, error) {
 		}
 		return false, err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 
 	_, _, err = k.GetStringValue(runValueName)
 	if err == registry.ErrNotExist {

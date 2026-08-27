@@ -1,12 +1,13 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,18 @@ import (
 // somebody could set too tight without noticing.
 //
 // The processor figure is read from the operating system's own accounting
-// rather than sampled, so a burst between two samples cannot hide in it.
+// rather than sampled, so a burst between two samples cannot hide in it. Which
+// accounting that is differs per platform and lives in the files beside this
+// one: `/proc` on Linux, `GetProcessTimes` and `GetProcessMemoryInfo` on
+// Windows. **Principle IV is why both exist.** The budget was always meant to
+// apply on both systems; for a while only one of them was ever checked, which
+// made the criterion true by measurement on Linux and true by assertion on
+// Windows.
+//
+// There is no third implementation and no fallback. fastr ships for two
+// operating systems, `internal/platform` has files for exactly those two, and a
+// package that cannot build for a third would not reach a stub here anyway. If
+// a third is ever added, the missing file is the compile error that says so.
 
 // idleWindow is how long the instance is watched. Long enough to cross the
 // three-second discovery re-query and several event-bus ticks, short enough not
@@ -42,13 +54,6 @@ const (
 )
 
 func TestAnIdleInstanceStaysWithinItsBudget(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		// The accounting below is read from /proc. The budget applies on both
-		// platforms; only this way of measuring it is Linux-only, and a
-		// Windows equivalent would be a different piece of work rather than a
-		// tweak. Recorded rather than silently skipped everywhere.
-		t.Skip("idle accounting is read from /proc; a Windows measurement needs its own implementation")
-	}
 	if testing.Short() {
 		t.Skip("takes twelve seconds of wall clock")
 	}
@@ -57,25 +62,52 @@ func TestAnIdleInstanceStaysWithinItsBudget(t *testing.T) {
 
 	root := t.TempDir()
 	cmd := exec.CommandContext(t.Context(), binary, "--port", "0", "--state-dir", root) //nolint:gosec // the path is this test's own build output
-	cmd.Env = append(os.Environ(),
-		"XDG_CONFIG_HOME="+filepath.Join(root, "config"),
-		"XDG_DATA_HOME="+filepath.Join(root, "data"),
-	)
-	cmd.Stdout, cmd.Stderr = nil, nil
+	cmd.Env = append(os.Environ(), isolatedEnvironment(root)...)
+
+	// Kept rather than discarded, because the only thing worth saying when this
+	// test fails is what the instance said before it stopped.
+	var output bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &output, &output
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		<-exited
 	})
+
+	// **The instance has to still be running, or this measures nothing.** A
+	// process that exited a second after starting reports no processor time and
+	// an empty working set, which is a perfect score against both budgets. The
+	// reader below is proved against a busy loop for exactly this reason; the
+	// subject needed the same care and did not have it. Found on Windows, where
+	// the binary refuses to start without the web bundle and the test passed
+	// anyway.
+	stillRunning := func() error {
+		select {
+		case err := <-exited:
+			exited <- err // hand it back, so the cleanup above does not block
+			return fmt.Errorf("the instance stopped during the measurement (%v). It said: %s",
+				err, strings.TrimSpace(output.String()))
+		default:
+			return nil
+		}
+	}
 
 	pid := cmd.Process.Pid
 
 	// Let it finish starting: binding, opening the store, the first sweep and
 	// the first discovery query all happen at once and none of them is idle.
 	time.Sleep(3 * time.Second)
+
+	if err := stillRunning(); err != nil {
+		t.Fatalf("nothing to measure: %v", err)
+	}
 
 	before, err := processorTime(pid)
 	if err != nil {
@@ -86,6 +118,10 @@ func TestAnIdleInstanceStaysWithinItsBudget(t *testing.T) {
 
 	time.Sleep(idleWindow)
 
+	if err := stillRunning(); err != nil {
+		t.Fatalf("the window measured a process that was not there: %v", err)
+	}
+
 	after, err := processorTime(pid)
 	if err != nil {
 		t.Fatalf("read processor time: %v", err)
@@ -95,12 +131,13 @@ func TestAnIdleInstanceStaysWithinItsBudget(t *testing.T) {
 	used := after - before
 	percent := used.Seconds() / elapsed.Seconds() * 100
 
-	// Measured at 0 ms and 11 MB on a developer machine in August 2026, against
-	// budgets of 1% and 100 MB — the process does not accumulate a single 10 ms
-	// tick across twelve idle seconds. The margin is the point: a timer set too
-	// tight later will show up here as a number that is no longer zero.
-	t.Logf("idle for %s: %.1f ms of processor time, %.3f%%",
-		elapsed.Round(time.Second), used.Seconds()*1000, percent)
+	// Measured at 0 ms and 11 MB on a Linux developer machine in August 2026,
+	// against budgets of 1% and 100 MB — the process does not accumulate a
+	// single 10 ms tick across twelve idle seconds. The margin is the point: a
+	// timer set too tight later will show up here as a number that is no longer
+	// zero.
+	t.Logf("idle for %s on %s: %.1f ms of processor time, %.3f%%",
+		elapsed.Round(time.Second), runtime.GOOS, used.Seconds()*1000, percent)
 
 	if percent > maxIdleCPUPercent {
 		t.Errorf("idle processor use is %.2f%%, over the %.0f%% budget", percent, maxIdleCPUPercent)
@@ -111,6 +148,15 @@ func TestAnIdleInstanceStaysWithinItsBudget(t *testing.T) {
 		t.Fatalf("read memory: %v", err)
 	}
 	t.Logf("resident memory: %d MB", residentMB)
+
+	// A floor as well as a ceiling. Nothing running the Go runtime has a
+	// resident set under a megabyte, so a reader that reports one is broken
+	// rather than reporting a very frugal program — and a broken reader passes
+	// the budget with room to spare, which is the worst way for this test to
+	// fail.
+	if residentMB < 1 {
+		t.Errorf("the memory reader reports %d MB, which no running Go program uses", residentMB)
+	}
 
 	if residentMB > maxIdleMemoryMB {
 		t.Errorf("idle memory is %d MB, over the %d MB budget", residentMB, maxIdleMemoryMB)
@@ -136,6 +182,9 @@ func builtBinary(t *testing.T) string {
 	}
 
 	built := filepath.Join(t.TempDir(), "fastr")
+	if runtime.GOOS == "windows" {
+		built += ".exe"
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 
@@ -156,21 +205,19 @@ func builtBinary(t *testing.T) string {
 // was tried and does not work, and the reason is the finding rather than the
 // problem: fastr's whole startup, binding sockets and opening the store and
 // loading catalogues and issuing the first discovery query, costs less than the
-// kernel's 10 ms accounting tick.
+// kernel's accounting tick. That holds on both systems, and Windows counts more
+// coarsely still.
 func TestTheProcessorReaderMeasuresSomething(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("/proc only")
-	}
-
 	before, err := processorTime(os.Getpid())
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
 
 	// Enough arithmetic to cross several accounting ticks, and nothing the
-	// compiler can discard.
+	// compiler can discard. Windows updates these counters on a scheduler tick
+	// of about 15.6 ms, so the window has to be comfortably wider than one.
 	sum := 0
-	deadline := time.Now().Add(120 * time.Millisecond)
+	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		for i := range 100_000 {
 			sum += i % 7
@@ -185,68 +232,21 @@ func TestTheProcessorReaderMeasuresSomething(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	if after <= before {
-		t.Fatalf("processor time did not move across 120ms of arithmetic: %v to %v", before, after)
+		t.Fatalf("processor time did not move across 250ms of arithmetic: %v to %v", before, after)
 	}
 }
 
-// processorTime reads how much processor time a process has used, from the
-// kernel's own accounting.
-//
-// Fields 14 and 15 of /proc/<pid>/stat are user and system ticks. Read rather
-// than sampled: a burst between two samples of instantaneous usage is invisible,
-// and a burst is exactly what a badly set timer produces.
-func processorTime(pid int) (time.Duration, error) {
-	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0, err
+// The reader has to measure the *right* process, not merely some process. One
+// that returned this test's own figures would sail past every assertion above
+// while saying nothing at all about the binary.
+func TestTheReadersLookAtTheProcessTheyAreGiven(t *testing.T) {
+	if _, err := processorTime(unusedPID); err == nil {
+		t.Errorf("processor time was read for pid %d, which does not exist", unusedPID)
 	}
-
-	// The second field is the executable name in parentheses and may contain
-	// spaces, so the fields after it are counted from the closing bracket.
-	text := string(raw)
-	close := strings.LastIndex(text, ")")
-	if close < 0 {
-		return 0, os.ErrInvalid
+	if _, err := residentMemoryMB(unusedPID); err == nil {
+		t.Errorf("memory was read for pid %d, which does not exist", unusedPID)
 	}
-	fields := strings.Fields(text[close+1:])
-	if len(fields) < 13 {
-		return 0, os.ErrInvalid
-	}
-
-	user, err := strconv.ParseInt(fields[11], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	system, err := strconv.ParseInt(fields[12], 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	// The kernel counts in clock ticks, conventionally 100 per second on Linux.
-	const ticksPerSecond = 100
-	return time.Duration(user+system) * time.Second / ticksPerSecond, nil
 }
 
-// residentMemoryMB reads the resident set size in megabytes.
-func residentMemoryMB(pid int) (int, error) {
-	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
-	if err != nil {
-		return 0, err
-	}
-
-	for _, line := range strings.Split(string(raw), "\n") {
-		if !strings.HasPrefix(line, "VmRSS:") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			return 0, os.ErrInvalid
-		}
-		kb, err := strconv.Atoi(fields[1])
-		if err != nil {
-			return 0, err
-		}
-		return kb / 1024, nil
-	}
-	return 0, os.ErrNotExist
-}
+// unusedPID is above the default maximum on both systems, so nothing holds it.
+const unusedPID = 0x7FFF0000

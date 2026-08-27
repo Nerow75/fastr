@@ -219,9 +219,6 @@ Stated here rather than discovered later:
 
 - **Simple mode content is readable on your network.** Repeated because it is
   the single most important thing on this page.
-- **Trusted mode on Windows** does not yet restrict the authority's private key
-  with an explicit access control list; it relies on the permissions of your
-  user profile directory.
 - **The trusted-mode setup steps have not been walked through on physical
   hardware** at the time of writing, only against the platforms' documentation.
 - **Streamed decryption on the phone** is not implemented yet, so trusted mode

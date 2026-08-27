@@ -124,6 +124,21 @@ jobs:
         with:
           version: v2.13.1
 
+      # And again for the other operating system, because the first pass cannot
+      # see it. A linter type-checks for one GOOS at a time, so with the default
+      # every `//go:build windows` file in the repository was invisible to this
+      # job — seven of them, including the one that restricts the certificate
+      # authority's private key. The job was green because it was not looking.
+      #
+      # Principle IV makes a failure on either system block the release, and
+      # this job was enforcing that on one. Nothing here needs a Windows runner:
+      # the linter cross-checks from Linux the same way the compiler does.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.1
+        env:
+          GOOS: windows
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
